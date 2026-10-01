@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm build *)",
+      "Bash(pnpm lint *)",
+      "Bash(pnpm dev *)",
+      "Bash(curl -s http://localhost:5174/)",
+      "Bash(curl -s http://localhost:8000/api/files)",
+      "Bash(/home/leapfrog/Documents/AI/DevBuddy/BE/venv/bin/pip install *)"
+    ]
+  }
+}
