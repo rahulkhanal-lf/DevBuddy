@@ -5,26 +5,7 @@ import FilesPage from "./pages/FilesPage";
 import type { Conversation, Message, UploadedFile } from "./types";
 import "./App.css";
 
-const MOCK_REPLIES = [
-  "That's a great question! Let me think through that for you.",
-  "Based on the documents you've uploaded, here's what I found...",
-  "I can help with that. Here's a detailed explanation:",
-  "Sure! Here's a breakdown of what you're asking about.",
-  "Interesting! From what I can see, the answer involves a few key concepts.",
-];
-
-function mockReply() {
-  return MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)];
-}
-
-function createConversation(firstMessage: string): Conversation {
-  return {
-    id: crypto.randomUUID(),
-    title: firstMessage.slice(0, 40) + (firstMessage.length > 40 ? "…" : ""),
-    messages: [],
-    createdAt: new Date(),
-  };
-}
+const API = "http://localhost:8000";
 
 export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -33,21 +14,26 @@ export default function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [currentPage, setCurrentPage] = useState<"chat" | "files">("chat");
 
-  const activeConversation = conversations.find((c) => c.id === activeId) ?? null;
-
   useEffect(() => {
+    fetchConversations();
     fetchFileHistory();
   }, []);
 
+  async function fetchConversations() {
+    try {
+      const res = await fetch(`${API}/api/conversations`);
+      if (res.ok) setConversations(await res.json());
+    } catch {
+      console.error("Failed to fetch conversations");
+    }
+  }
+
   async function fetchFileHistory() {
     try {
-      const response = await fetch("http://localhost:8000/api/files");
-      if (response.ok) {
-        const files: UploadedFile[] = await response.json();
-        setUploadedFiles(files);
-      }
-    } catch (error) {
-      console.error("Failed to fetch files:", error);
+      const res = await fetch(`${API}/api/files`);
+      if (res.ok) setUploadedFiles(await res.json());
+    } catch {
+      console.error("Failed to fetch files");
     }
   }
 
@@ -55,11 +41,29 @@ export default function App() {
     setActiveId(null);
   }
 
-  function handleSelectConversation(id: string) {
+  async function handleSelectConversation(id: string) {
     setActiveId(id);
+    // Load messages the first time a conversation is selected
+    const existing = conversations.find((c) => c.id === id);
+    if (existing && existing.messages.length === 0) {
+      try {
+        const res = await fetch(`${API}/api/conversations/${id}`);
+        if (res.ok) {
+          const full: Conversation = await res.json();
+          setConversations((prev) => prev.map((c) => (c.id === id ? full : c)));
+        }
+      } catch {
+        console.error("Failed to load conversation messages");
+      }
+    }
   }
 
-  function handleDeleteConversation(id: string) {
+  async function handleDeleteConversation(id: string) {
+    try {
+      await fetch(`${API}/api/conversations/${id}`, { method: "DELETE" });
+    } catch {
+      console.error("Failed to delete conversation");
+    }
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) setActiveId(null);
   }
@@ -72,52 +76,72 @@ export default function App() {
     setUploadedFiles((prev) => prev.filter((f) => f.id !== id));
   }
 
-  function handleSend(content: string) {
+  async function handleSend(content: string) {
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: "user",
       content,
-      timestamp: new Date(),
+      created_at: new Date().toISOString(),
     };
 
-    let targetId = activeId;
+    let convId = activeId;
 
-    if (!targetId) {
-      const newConv = createConversation(content);
-      setConversations((prev) => [newConv, ...prev]);
-      setActiveId(newConv.id);
-      targetId = newConv.id;
-
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === targetId ? { ...c, messages: [...c.messages, userMsg] } : c
-        )
-      );
+    if (!convId) {
+      // Create a new conversation on the server
+      try {
+        const res = await fetch(`${API}/api/conversations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: content.slice(0, 60) }),
+        });
+        if (!res.ok) return;
+        const conv: Conversation = await res.json();
+        convId = conv.id;
+        setConversations((prev) => [{ ...conv, messages: [userMsg] }, ...prev]);
+        setActiveId(convId);
+      } catch {
+        console.error("Failed to create conversation");
+        return;
+      }
     } else {
+      // Optimistically add user message to existing conversation
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === targetId ? { ...c, messages: [...c.messages, userMsg] } : c
+          c.id === convId ? { ...c, messages: [...c.messages, userMsg] } : c
         )
       );
     }
 
     setIsTyping(true);
-    setTimeout(() => {
-      const assistantMsg: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: mockReply(),
-        timestamp: new Date(),
-      };
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === targetId
-            ? { ...c, messages: [...c.messages, assistantMsg] }
-            : c
-        )
-      );
+
+    try {
+      const res = await fetch(`${API}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: convId, message: content }),
+      });
+
+      if (res.ok) {
+        const { message, message_id } = await res.json();
+        const assistantMsg: Message = {
+          id: message_id,
+          role: "assistant",
+          content: message,
+          created_at: new Date().toISOString(),
+        };
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? { ...c, messages: [...c.messages, assistantMsg] }
+              : c
+          )
+        );
+      }
+    } catch {
+      console.error("Chat request failed");
+    } finally {
       setIsTyping(false);
-    }, 1200 + Math.random() * 800);
+    }
   }
 
   return (

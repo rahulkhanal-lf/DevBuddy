@@ -7,8 +7,8 @@ interface Props {
   isTyping: boolean;
 }
 
-function formatTime(date: Date) {
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function formatTime(dateString: string) {
+  return new Date(dateString).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export default function ChatArea({ messages, isTyping }: Props) {
@@ -51,7 +51,7 @@ export default function ChatArea({ messages, isTyping }: Props) {
           </div>
           <div className="message-body">
             <div className="message-bubble">{msg.content}</div>
-            <span className="message-time">{formatTime(msg.timestamp)}</span>
+            <span className="message-time">{formatTime(msg.created_at)}</span>
           </div>
         </div>
       ))}

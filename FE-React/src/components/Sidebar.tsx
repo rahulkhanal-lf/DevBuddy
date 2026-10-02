@@ -104,7 +104,7 @@ export default function Sidebar({
             className={`page-tab ${currentPage === "files" ? "active" : ""}`}
             onClick={() => onPageChange("files")}
           >
-            📄 Files
+            🧠 Knowledge
           </button>
         </div>
 

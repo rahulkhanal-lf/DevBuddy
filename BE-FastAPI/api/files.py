@@ -1,27 +1,38 @@
 import os
 from uuid import uuid4
 from datetime import datetime
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, UploadFile, File, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import UploadedFile
 from schemas import FileResponse
+from services import ingest_pdf
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+ALLOWED_TYPES = {"application/pdf"}
+ALLOWED_EXTENSIONS = {".pdf"}
 
 
 @router.post("/upload", response_model=FileResponse)
-async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS or file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
     if file.size > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File size exceeds 50MB limit")
 
     file_id = str(uuid4())
-    file_ext = os.path.splitext(file.filename)[1]
+    file_ext = os.path.splitext(file.filename)[1].lower()
     stored_filename = f"{file_id}{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, stored_filename)
 
@@ -40,6 +51,10 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
     db.add(db_file)
     db.commit()
     db.refresh(db_file)
+
+    # Kick off embedding in the background so the upload response is instant
+    background_tasks.add_task(ingest_pdf, file_path, file_id, file.filename)
+
     return db_file
 
 

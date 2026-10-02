@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import engine
-from models import Base
-from api import files_router, conversations_router, messages_router
+from database import engine, Base
+from api import files_router, conversations_router, messages_router, knowledge_router, chat_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -20,6 +19,8 @@ app.add_middleware(
 app.include_router(files_router)
 app.include_router(conversations_router)
 app.include_router(messages_router)
+app.include_router(knowledge_router)
+app.include_router(chat_router)
 
 
 @app.get("/")

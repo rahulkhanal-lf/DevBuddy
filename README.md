@@ -1,6 +1,6 @@
 # DevBuddy
 
-A full-stack AI dev assistant with a **FastAPI** backend (BE) and a **React + Vite** frontend (FE).
+A full-stack AI dev assistant with a **FastAPI** backend and a **React + Vite** frontend.
 
 ---
 
@@ -8,24 +8,25 @@ A full-stack AI dev assistant with a **FastAPI** backend (BE) and a **React + Vi
 
 ```
 DevBuddy/
-├── BE/          # Python FastAPI backend
-└── FE/          # React + Vite frontend
+├── BE-FastAPI/      # Python FastAPI backend
+└── FE-React/        # React + Vite frontend
 ```
 
 ---
 
-## Backend (BE)
+## Backend (BE-FastAPI)
 
 ### Requirements
 
 - Python 3.12+
+- PostgreSQL
 
 ### Setup
 
 ```bash
-cd BE
+cd BE-FastAPI
 
-# Create virtual environment (already done — skip if venv/ exists)
+# Create virtual environment (skip if venv/ exists)
 python3 -m venv venv
 
 # Activate the virtual environment
@@ -37,15 +38,13 @@ pip install -r requirements.txt
 
 # Copy environment variables
 cp .env.example .env
-# Edit .env and fill in any required values
+# Edit .env and fill in your database credentials
 ```
 
 ### Run the development server
 
 ```bash
-# Make sure the venv is activated
 source venv/bin/activate
-
 uvicorn main:app --reload --port 8000
 ```
 
@@ -60,7 +59,7 @@ deactivate
 
 ---
 
-## Frontend (FE)
+## Frontend (FE-React)
 
 ### Requirements
 
@@ -70,7 +69,7 @@ deactivate
 ### Setup
 
 ```bash
-cd FE
+cd FE-React
 
 # Install dependencies
 pnpm install
@@ -98,14 +97,13 @@ Open two terminals:
 
 **Terminal 1 — Backend**
 ```bash
-cd BE
+cd BE-FastAPI
 source venv/bin/activate
 uvicorn main:app --reload --port 8000
 ```
 
 **Terminal 2 — Frontend**
 ```bash
-cd FE
+cd FE-React
 pnpm dev
 ```
-# DevBuddy
