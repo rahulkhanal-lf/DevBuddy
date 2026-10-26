@@ -86,3 +86,33 @@ export function deleteMap(id: string) {
 export function generateMap(body: GenerateRequest, signal: AbortSignal) {
   return request<GeneratedDraft>("/api/maps/generate", { method: "POST", body: JSON.stringify(body), signal });
 }
+
+export function generateMapFromText(text: string, signal: AbortSignal) {
+  return request<GeneratedDraft>("/api/maps/generate-from-text", {
+    method: "POST",
+    body: JSON.stringify({ text }),
+    signal,
+  });
+}
+
+export interface ExpansionNode {
+  label: string;
+  description: string;
+  children: ExpansionNode[];
+}
+
+export function expandNode(mapId: string, nodeId: string, instruction: string, signal: AbortSignal) {
+  return request<{ nodes: ExpansionNode[] }>(`/api/maps/${mapId}/expand`, {
+    method: "POST",
+    body: JSON.stringify({ node_id: nodeId, instruction }),
+    signal,
+  });
+}
+
+export function importNotes(mapId: string, notes: string, parentNodeId: string | null, signal: AbortSignal) {
+  return request<{ parent_node_id: string | null; nodes: ExpansionNode[] }>(`/api/maps/${mapId}/import-notes`, {
+    method: "POST",
+    body: JSON.stringify({ notes, parent_node_id: parentNodeId }),
+    signal,
+  });
+}

@@ -23,7 +23,7 @@ from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_postgres import PGVector
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from services.bedrock import BedrockNotConfigured, get_chat_model, get_region
+from services.bedrock import BedrockNotConfigured, get_bedrock_client, get_chat_model, get_region
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def _pgvector_url() -> str:
 def _embeddings() -> BedrockEmbeddings:
     return BedrockEmbeddings(
         model_id=TITAN_EMBED_MODEL,
-        region_name=get_region(),
+        client=get_bedrock_client(),
     )
 
 

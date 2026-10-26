@@ -396,6 +396,140 @@
 
 .mm-body { flex: 1; display: flex; min-height: 0; }
 .mm-canvas { flex: 1; position: relative; min-width: 0; }
+
+/* ── Import Notes Panel ──────────────────────────────────────────────────── */
+.imp-panel {
+  width: 320px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.imp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.imp-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.imp-close {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius);
+}
+.imp-close:hover { color: var(--text); }
+
+.imp-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.imp-hint {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.imp-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.imp-select {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.imp-select:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+
+.imp-textarea {
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+  min-height: 180px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.imp-textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.imp-textarea::placeholder { color: var(--text-3); }
+.imp-textarea:disabled { opacity: 0.6; }
+
+.imp-error { font-size: 12px; color: var(--danger); margin: 0; }
+
+.imp-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+
+.imp-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.imp-preview {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.imp-preview li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12.5px;
+}
+
+.imp-node-label { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-node-sub { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
 .mm-inspector {
   width: 280px;
   flex-shrink: 0;
@@ -409,6 +543,105 @@
 }
 .mm-inspector h3 { margin: 0; font-size: 14px; color: var(--text); }
 .mm-inspector-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* ── AI expand panel (inside inspector) ──────────────────────────────────── */
+
+.mm-expand {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+.mm-expand-toggle { width: 100%; justify-content: center; }
+
+.mm-expand-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.mm-expand-input {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  resize: none;
+  line-height: 1.5;
+}
+.mm-expand-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.mm-expand-input::placeholder { color: var(--text-3); }
+
+.mm-expand-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.mm-expand-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  padding: 5px 8px;
+  border-radius: var(--radius);
+}
+
+.mm-expand-preview-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.mm-expand-preview {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.mm-expand-preview li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.mm-expand-label {
+  flex: 1;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mm-expand-sub {
+  font-size: 11px;
+  color: var(--accent-text);
+  white-space: nowrap;
+}
+
+.mm-expand-actions {
+  display: flex;
+  gap: 6px;
+}
+.mm-expand-actions .mm-btn { flex: 1; justify-content: center; }
+
 .mm-shortcuts {
   font-size: 11.5px;
   color: var(--text-3);
@@ -556,12 +789,16 @@
 .mm-connect-item:hover { background: #f3f4f6; }
 .mm-connect-item.cancel { color: #6b7280; }
 .mm-connect-item.cancel:hover { background: #f9fafb; }
+.mm-connect-item.expand { color: var(--accent); }
+.mm-connect-item.expand:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 
 :root[data-theme="dark"] .mm-connect-menu { background: #1f2937; border-color: #374151; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
 :root[data-theme="dark"] .mm-connect-item { color: #f3f4f6; }
 :root[data-theme="dark"] .mm-connect-item:hover { background: #374151; }
 :root[data-theme="dark"] .mm-connect-item.cancel { color: #9ca3af; }
 :root[data-theme="dark"] .mm-connect-item.cancel:hover { background: #2d3748; }
+:root[data-theme="dark"] .mm-connect-item.expand { color: var(--accent); }
+:root[data-theme="dark"] .mm-connect-item.expand:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
 @media (max-width: 760px) {
   .mm-inspector { position: absolute; right: 0; bottom: 0; top: auto; width: 100%; max-height: 45%; border-left: none; border-top: 1px solid var(--border); z-index: 5; }

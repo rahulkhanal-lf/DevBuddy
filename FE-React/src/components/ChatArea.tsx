@@ -1,6 +1,11 @@
-import { useEffect, useRef } from "react";
-import { Bot, CircleAlert, MessageSquare, User } from "lucide-react";
+import { useRef, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Bot, CircleAlert, MessageSquare, Network, User } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { Message } from "../types";
+import { generateMapFromText, isAbortError, errorMessage } from "../mindmap/api";
+import type { Draft } from "../mindmap/types";
 import "./ChatArea.css";
 
 interface Props {
@@ -10,6 +15,58 @@ interface Props {
 
 function formatTime(dateString: string) {
   return new Date(dateString).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function AssistantMessage({ msg }: { msg: Message }) {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
+
+  async function createMap() {
+    if (loading) return;
+    setErr("");
+    setLoading(true);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      const draft = await generateMapFromText(msg.content, ctrl.signal);
+      const d: Draft = { title: draft.title, graph: { nodes: draft.nodes, edges: draft.edges } };
+      navigate("/maps/new", { state: { draft: d } });
+    } catch (e) {
+      if (!isAbortError(e)) setErr(errorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className={`message-row assistant${msg.error ? " error" : ""}`}>
+      <div className="message-avatar">
+        {msg.error ? <CircleAlert size={15} /> : <Bot size={15} />}
+      </div>
+      <div className="message-body">
+        <div className="message-bubble message-markdown">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+        </div>
+        <div className="message-actions">
+          <span className="message-time">{formatTime(msg.created_at)}</span>
+          {!msg.error && (
+            <button
+              className={`msg-map-btn${loading ? " loading" : ""}`}
+              onClick={createMap}
+              disabled={loading}
+              title="Generate a mind map from this response"
+            >
+              {loading ? <span className="msg-spinner" /> : <Network size={12} />}
+              {loading ? "Generating…" : "Create Mind Map"}
+            </button>
+          )}
+        </div>
+        {err && <p className="msg-map-err">{err}</p>}
+      </div>
+    </div>
+  );
 }
 
 export default function ChatArea({ messages, isTyping }: Props) {
@@ -47,17 +104,21 @@ export default function ChatArea({ messages, isTyping }: Props) {
 
   return (
     <div className="chat-area">
-      {messages.map((msg) => (
-        <div key={msg.id} className={`message-row ${msg.role}${msg.error ? " error" : ""}`}>
-          <div className="message-avatar">
-            {msg.error ? <CircleAlert size={15} /> : msg.role === "assistant" ? <Bot size={15} /> : <User size={15} />}
+      {messages.map((msg) =>
+        msg.role === "assistant" ? (
+          <AssistantMessage key={msg.id} msg={msg} />
+        ) : (
+          <div key={msg.id} className="message-row user">
+            <div className="message-avatar">
+              <User size={15} />
+            </div>
+            <div className="message-body">
+              <div className="message-bubble">{msg.content}</div>
+              <span className="message-time">{formatTime(msg.created_at)}</span>
+            </div>
           </div>
-          <div className="message-body">
-            <div className="message-bubble">{msg.content}</div>
-            <span className="message-time">{formatTime(msg.created_at)}</span>
-          </div>
-        </div>
-      ))}
+        )
+      )}
 
       {isTyping && (
         <div className="message-row assistant">

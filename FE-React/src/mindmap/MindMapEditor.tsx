@@ -14,10 +14,11 @@ import {
 import { GitBranch, Minus, Plus } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 import { useBlocker } from "react-router-dom";
-import { ArrowLeft, Maximize2, Network, Redo2, Save, Trash2, Undo2, X } from "lucide-react";
+import { ArrowLeft, FileText, Maximize2, Network, Redo2, Save, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useTheme } from "../theme";
 
-import { createMap, errorMessage, getMap, renameMap, saveGraph } from "./api";
+import { createMap, errorMessage, expandNode, getMap, importNotes, renameMap, saveGraph, type ExpansionNode } from "./api";
+import ImportNotesPanel from "./ImportNotesPanel";
 import {
   addChild,
   addSibling,
@@ -81,6 +82,18 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
   const [measured, setMeasured] = useState<Record<string, { width: number; height: number }>>({});
   const [connectMenu, setConnectMenu] = useState<{ sourceId: string; x: number; y: number } | null>(null);
   const dragBase = useRef<MindGraph | null>(null);
+
+  // Import notes panel
+  const [importOpen, setImportOpen] = useState(false);
+
+  // AI expand state
+  const [expandOpen, setExpandOpen] = useState(false);
+  const [expandInstruction, setExpandInstruction] = useState("");
+  const [expandLoading, setExpandLoading] = useState(false);
+  const [expandError, setExpandError] = useState("");
+  const [expandSuggestions, setExpandSuggestions] = useState<ExpansionNode[] | null>(null);
+  const expandAbort = useRef<AbortController | null>(null);
+  const expandTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const graph = hist.present;
   const isDraft = mapId === null;
@@ -204,6 +217,22 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
   function selectNode(id: string | null) {
     setSelectedId(id);
     setSelectedEdgeId(null);
+    // Reset expand panel when switching nodes
+    expandAbort.current?.abort();
+    setExpandOpen(false);
+    setExpandSuggestions(null);
+    setExpandError("");
+    setExpandInstruction("");
+  }
+
+  function openExpandForNode(nodeId: string) {
+    selectNode(nodeId);
+    setExpandOpen(true);
+    setExpandSuggestions(null);
+    setExpandError("");
+    setExpandInstruction("");
+    // Focus the textarea after React re-renders
+    setTimeout(() => expandTextareaRef.current?.focus(), 50);
   }
 
   // Stable callbacks for memoized nodes; they always call the latest handlers
@@ -224,6 +253,78 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
     }),
     []
   );
+
+  // ── AI node expansion ─────────────────────────────────────────────────────
+
+  async function runExpand() {
+    if (!mapId || !selectedId || expandLoading) return;
+    expandAbort.current?.abort();
+    const ctrl = new AbortController();
+    expandAbort.current = ctrl;
+    setExpandLoading(true);
+    setExpandError("");
+    setExpandSuggestions(null);
+    try {
+      const res = await expandNode(mapId, selectedId, expandInstruction, ctrl.signal);
+      setExpandSuggestions(res.nodes);
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setExpandError(errorMessage(err));
+    } finally {
+      setExpandLoading(false);
+    }
+  }
+
+  function flattenExpansion(
+    suggestions: ExpansionNode[],
+    parentId: string,
+    g: MindGraph,
+    idCounter: { n: number }
+  ): MindGraph {
+    let cur = g;
+    for (const s of suggestions) {
+      const id = `ai${Date.now()}${++idCounter.n}`;
+      cur = {
+        ...cur,
+        nodes: [...cur.nodes, {
+          id,
+          parent_id: parentId,
+          label: s.label.trim() || "Node",
+          description: s.description.trim(),
+          x: 0,
+          y: 0,
+          collapsed: false,
+        }],
+        edges: cur.edges,
+      };
+      if (s.children?.length) {
+        cur = flattenExpansion(s.children, id, cur, idCounter);
+      }
+    }
+    return cur;
+  }
+
+  function addSuggestions() {
+    if (!selectedId || !expandSuggestions?.length) return;
+    const idCounter = { n: 0 };
+    const next = flattenExpansion(expandSuggestions, selectedId, graph, idCounter);
+    commit(autoLayout(next));
+    requestAnimationFrame(() => fitView({ duration: 300, padding: 0.2 }));
+    setExpandSuggestions(null);
+    setExpandOpen(false);
+    setExpandInstruction("");
+  }
+
+  function addImportedNotes(parentNodeId: string | null, suggestions: ExpansionNode[]) {
+    if (!suggestions.length) return;
+    const idCounter = { n: Date.now() };
+    const attachTo = parentNodeId ?? graph.nodes.find((n) => n.parent_id === null)?.id ?? null;
+    if (!attachTo) return;
+    const next = flattenExpansion(suggestions, attachTo, graph, idCounter);
+    commit(autoLayout(next));
+    requestAnimationFrame(() => fitView({ duration: 300, padding: 0.2 }));
+    setImportOpen(false);
+  }
 
   // ── Persistence ───────────────────────────────────────────────────────────
 
@@ -489,6 +590,15 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
             <Maximize2 size={14} /> Fit
           </button>
         </div>
+        {mapId && (
+          <button
+            className={`mm-btn${importOpen ? " primary" : ""}`}
+            onClick={() => setImportOpen((v) => !v)}
+            title="Import rough notes and let AI structure them into branches"
+          >
+            <FileText size={14} /> Import Notes
+          </button>
+        )}
         <span className={`mm-status${dirty ? " dirty" : ""}`}>{status}</span>
         <button className="mm-btn primary" onClick={save} disabled={saving || (!dirty && !isDraft)} title="Save (Ctrl+S)">
           <Save size={14} /> {isDraft ? "Accept & save" : "Save"}
@@ -514,6 +624,14 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
       )}
 
       <div className="mm-body">
+        {importOpen && mapId && (
+          <ImportNotesPanel
+            mapId={mapId}
+            nodes={graph.nodes}
+            onClose={() => setImportOpen(false)}
+            onAdd={addImportedNotes}
+          />
+        )}
         <div className="mm-canvas">
           <ReactFlow<MindFlowNode, Edge>
             nodes={rfNodes}
@@ -597,6 +715,15 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
                 <Plus size={14} />
                 Sibling
               </button>
+              {mapId && (
+                <button
+                  className="mm-connect-item expand"
+                  onClick={() => { openExpandForNode(connectMenu.sourceId); setConnectMenu(null); }}
+                >
+                  <Sparkles size={14} />
+                  Expand with AI
+                </button>
+              )}
               <button
                 className="mm-connect-item cancel"
                 onClick={() => setConnectMenu(null)}
@@ -656,6 +783,65 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
                     </button>
                   )}
                 </div>
+                {/* AI expand section — only when editing a saved map */}
+                {mapId && (
+                  <div className="mm-expand">
+                    <button
+                      className={`mm-btn mm-expand-toggle${expandOpen ? " primary" : ""}`}
+                      onClick={() => { setExpandOpen((v) => !v); setExpandSuggestions(null); setExpandError(""); }}
+                    >
+                      <Sparkles size={13} /> Expand with AI
+                    </button>
+
+                    {expandOpen && (
+                      <div className="mm-expand-body">
+                        <textarea
+                          ref={expandTextareaRef}
+                          className="mm-expand-input"
+                          rows={2}
+                          placeholder={`e.g. "Add subtopics about ${selectedNode.label}…"`}
+                          value={expandInstruction}
+                          onChange={(e) => setExpandInstruction(e.target.value)}
+                          disabled={expandLoading}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); runExpand(); }
+                          }}
+                        />
+                        {expandLoading ? (
+                          <span className="mm-expand-status"><span className="mm-spinner" /> Generating…</span>
+                        ) : (
+                          <button className="mm-btn primary" style={{ width: "100%" }} onClick={runExpand}>
+                            Generate
+                          </button>
+                        )}
+
+                        {expandError && <p className="mm-expand-error">{expandError}</p>}
+
+                        {expandSuggestions && expandSuggestions.length > 0 && (
+                          <>
+                            <p className="mm-expand-preview-title">
+                              {expandSuggestions.length} node{expandSuggestions.length !== 1 ? "s" : ""} to add:
+                            </p>
+                            <ul className="mm-expand-preview">
+                              {expandSuggestions.map((n, i) => (
+                                <li key={i}>
+                                  <span className="mm-expand-label">{n.label}</span>
+                                  {n.children?.length > 0 && (
+                                    <span className="mm-expand-sub">+{n.children.length} child{n.children.length !== 1 ? "ren" : ""}</span>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                            <div className="mm-expand-actions">
+                              <button className="mm-btn" onClick={() => setExpandSuggestions(null)}>Discard</button>
+                              <button className="mm-btn primary" onClick={addSuggestions}>Add to map</button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <p className="mm-hint">Drag from a node's edge dot to another node to add a cross-connection.</p>
               </>
             )}

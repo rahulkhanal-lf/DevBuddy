@@ -6,13 +6,17 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import MindMap, MindNode, MindEdge
 from schemas.mindmap import EdgeIn, GraphIn, MapCreate, MapDetail, MapRename, MapSummary, NodeIn
-from pydantic import BaseModel as PydanticBase
+from pydantic import BaseModel as PydanticBase, Field
 from services.mindmap_ai import (
     MindMapAIError,
     MindMapGenerateRequest,
+    ExpansionNode,
     ask_about_maps,
+    expand_node,
     format_maps_as_context,
+    generate_from_text,
     generate_mindmap,
+    import_notes,
 )
 from services.mindmap_rules import GraphValidationError, validate_graph
 
@@ -134,6 +138,110 @@ def generate_map(payload: MindMapGenerateRequest):
     except MindMapAIError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
     return {"title": title, "nodes": graph.nodes, "edges": graph.edges}
+
+
+class GenerateFromTextRequest(PydanticBase):
+    text: str = Field(min_length=20, max_length=20000)
+
+
+@router.post("/generate-from-text")
+def generate_map_from_text(payload: GenerateFromTextRequest):
+    """Generate an unsaved mind map draft from a free-form text block (e.g. a chat response)."""
+    try:
+        title, graph = generate_from_text(payload.text)
+    except MindMapAIError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    return {"title": title, "nodes": graph.nodes, "edges": graph.edges}
+
+
+class ExpandRequest(PydanticBase):
+    node_id: str
+    instruction: str = ""
+
+
+def _serialise_expansion(nodes: list[ExpansionNode]) -> list[dict]:
+    """Recursively convert ExpansionNode tree to JSON-serialisable dicts."""
+    result = []
+    for n in nodes:
+        result.append({
+            "label": n.label.strip()[:200],
+            "description": n.description.strip()[:1000],
+            "children": _serialise_expansion(n.children),
+        })
+    return result
+
+
+class ImportNotesRequest(PydanticBase):
+    notes: str = Field(min_length=10, max_length=20000)
+    parent_node_id: str | None = None  # None = attach under root
+
+
+@router.post("/{map_id}/import-notes")
+def import_map_notes(map_id: str, payload: ImportNotesRequest, db: Session = Depends(get_db)):
+    """Convert rough notes into structured child nodes and attach under a chosen parent."""
+    m = _get_map(db, map_id)
+    context = _build_tree_text(m.nodes)
+    if payload.parent_node_id:
+        parent = next((n for n in m.nodes if n.id == payload.parent_node_id), None)
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent node not found")
+        parent_label = parent.label
+    else:
+        root = next((n for n in m.nodes if n.parent_id is None), None)
+        parent_label = root.label if root else m.title
+        payload.parent_node_id = root.id if root else None
+    try:
+        suggestions = import_notes(
+            map_context=context,
+            parent_label=parent_label,
+            notes=payload.notes,
+        )
+    except MindMapAIError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    return {"parent_node_id": payload.parent_node_id, "nodes": _serialise_expansion(suggestions)}
+
+
+@router.post("/{map_id}/expand")
+def expand_map_node(map_id: str, payload: ExpandRequest, db: Session = Depends(get_db)):
+    """AI-suggest new child nodes for a specific node, using the map as context."""
+    m = _get_map(db, map_id)
+    # Build context from this map's node tree
+    context = _build_tree_text(m.nodes)
+    # Find the target node
+    target = next((n for n in m.nodes if n.id == payload.node_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Node not found")
+    # Existing direct children labels (to avoid duplicates)
+    existing = [n.label for n in m.nodes if n.parent_id == payload.node_id]
+    try:
+        suggestions = expand_node(
+            map_context=context,
+            node_label=target.label,
+            node_description=target.description,
+            existing_children=existing,
+            instruction=payload.instruction.strip(),
+        )
+    except MindMapAIError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    return {"nodes": _serialise_expansion(suggestions)}
+
+
+def _build_tree_text(nodes) -> str:
+    """Render a node list as an indented tree string."""
+    by_id = {n.id: n for n in nodes}
+    children: dict = {}
+    for n in nodes:
+        children.setdefault(n.parent_id, []).append(n)
+    lines: list[str] = []
+
+    def walk(parent_id, indent: int) -> None:
+        for n in children.get(parent_id, []):
+            prefix = "  " * indent + ("- " if indent else "")
+            lines.append(f"{prefix}{n.label}")
+            walk(n.id, indent + 1)
+
+    walk(None, 0)
+    return "\n".join(lines)
 
 
 @router.get("/{map_id}", response_model=MapDetail)
