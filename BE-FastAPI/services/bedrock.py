@@ -56,7 +56,13 @@ def _boto_session() -> boto3.Session:
     )
 
 
-def get_chat_model(*, max_tokens: int, timeout: float, max_retries: int = 1) -> ChatBedrockConverse:
+def get_chat_model(
+    *,
+    max_tokens: int,
+    timeout: float,
+    max_retries: int = 1,
+    temperature: float = 0.7,
+) -> ChatBedrockConverse:
     """
     Return a ChatBedrockConverse (Nova Lite) instance ready for LangChain chains.
     Raises BedrockNotConfigured when credentials are missing.
@@ -71,6 +77,7 @@ def get_chat_model(*, max_tokens: int, timeout: float, max_retries: int = 1) -> 
         model=get_llm_model(),
         client=session.client("bedrock-runtime", config=config),
         max_tokens=max_tokens,
+        temperature=temperature,
     )
 
 

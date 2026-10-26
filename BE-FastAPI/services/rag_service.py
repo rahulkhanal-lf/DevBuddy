@@ -13,15 +13,18 @@ Key components:
 
 import logging
 import os
+from pathlib import Path
 
 from langchain_aws import BedrockEmbeddings
 from langchain_community.document_loaders import PyPDFLoader  # noqa: deprecated warning expected
 from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_postgres import PGVector
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pydantic import BaseModel
 
 from services.bedrock import BedrockNotConfigured, get_bedrock_client, get_chat_model, get_region
 
@@ -30,6 +33,20 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAME = "devbuddy_knowledge"
 TITAN_EMBED_MODEL = "amazon.titan-embed-text-v2:0"
 
+_PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "project" / "prompts"
+
+
+# ── Structured output schema ──────────────────────────────────────────────────
+
+class RAGResponse(BaseModel):
+    """Structured output returned by the RAG pipeline."""
+    answer: str
+    sources: list[str]
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _pgvector_url() -> str:
     url = os.getenv("DATABASE_URL", "")
@@ -49,6 +66,25 @@ def _vector_store() -> PGVector:
         collection_name=COLLECTION_NAME,
         connection=_pgvector_url(),
         use_jsonb=True,
+    )
+
+
+def _load_prompt(filename: str) -> str:
+    """Load a versioned system prompt file; fall back to inline if missing."""
+    path = _PROMPTS_DIR / filename
+    if path.exists():
+        return path.read_text()
+    # Inline fallback (v2 content) so the service works without the project dir
+    return (
+        "You are MindFlow AI, an Internal Engineering Knowledge Assistant.\n"
+        "Your sole source of truth is the CONTEXT block below.\n\n"
+        "STRICT RULES:\n"
+        "1. Answer ONLY from the context.\n"
+        "2. If context is insufficient, respond: \"I don't have enough information "
+        "in my knowledge base to answer that.\"\n"
+        "3. Never speculate or use training data.\n\n"
+        "A system that confidently hallucinates is worse than one that says 'I don't know.'\n\n"
+        "CONTEXT:\n{context}"
     )
 
 
@@ -89,53 +125,40 @@ def ingest_text(content: str, source_id: str, title: str) -> None:
         logger.exception("Failed to ingest text '%s'", title)
 
 
-# ── Retrieval + Generation ────────────────────────────────────────────────────
+# ── Retrieval ─────────────────────────────────────────────────────────────────
 
-def _format_docs(docs: list[Document]) -> str:
-    return "\n\n".join(doc.page_content for doc in docs)
+def _retrieve_chunks(query: str, k: int = 4) -> list[Document]:
+    """Return top-k similar chunks from pgvector. Returns [] on any failure."""
+    try:
+        retriever = _vector_store().as_retriever(search_kwargs={"k": k})
+        return retriever.invoke(query)
+    except BedrockNotConfigured:
+        return []
+    except Exception:
+        logger.exception("Knowledge retrieval failed")
+        return []
 
 
 def _retrieve_context(query: str) -> str:
-    """Top-4 similar chunks from pgvector using Titan embeddings. Returns '' on any failure."""
-    try:
-        retriever = _vector_store().as_retriever(search_kwargs={"k": 4})
-        return _format_docs(retriever.invoke(query))
-    except BedrockNotConfigured:
-        return ""
-    except Exception:
-        logger.exception("Knowledge retrieval failed; answering without context")
-        return ""
+    """Convenience wrapper returning formatted context string."""
+    return "\n\n".join(c.page_content for c in _retrieve_chunks(query))
 
+
+# ── Generation ────────────────────────────────────────────────────────────────
 
 def rag_chat(query: str) -> str:
     """
-    LCEL RAG chain:
+    LCEL RAG chain (plain-text output, used by the live chat endpoint).
         _retrieve_context  → top-4 chunks from pgvector (Titan embeddings)
-        | prompt           → system + human messages
-        | llm              → Amazon Nova Lite via Bedrock
+        | prompt           → versioned system prompt (system_qa_v2.md)
+        | llm              → Amazon Nova Lite (temperature=0.1)
         | StrOutputParser  → plain-text reply
     """
-    llm = get_chat_model(max_tokens=4096, timeout=90)
+    llm = get_chat_model(max_tokens=4096, timeout=90, temperature=0.1)
 
+    system_content = _load_prompt("system_qa_v2.md")
     prompt = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            "You are MindFlow AI, an Internal Engineering Knowledge Assistant.\n"
-            "Your sole source of truth is the CONTEXT block below, retrieved from the user's knowledge base.\n\n"
-            "STRICT RULES — follow every one, always:\n"
-            "1. Answer ONLY from information explicitly present in the context.\n"
-            "2. If the context is empty, or does not contain sufficient information to answer "
-            "the question, you MUST respond with exactly:\n"
-            "   \"I don't have enough information in my knowledge base to answer that. "
-            "Try uploading relevant documents or adding notes and ask again.\"\n"
-            "   Do NOT attempt to answer from general knowledge or training data.\n"
-            "3. Never speculate, infer beyond what the context states, or fill gaps with assumptions.\n"
-            "4. If you are partially confident, state exactly which part of your answer comes from "
-            "the context and flag what is uncertain.\n"
-            "5. Cite the source document name when it is available in the context metadata.\n\n"
-            "A system that confidently hallucinates is worse than one that says 'I don't know.'\n\n"
-            "CONTEXT:\n{context}",
-        ),
+        ("system", system_content),
         ("human", "{question}"),
     ])
 
@@ -147,3 +170,39 @@ def rag_chat(query: str) -> str:
     )
 
     return chain.invoke(query)
+
+
+def rag_chat_structured(query: str, k: int = 4) -> RAGResponse:
+    """
+    Structured RAG pipeline used by the evaluation suite.
+
+    Returns a RAGResponse with:
+      answer           — LLM-generated answer grounded in retrieved context
+      sources          — unique source document names from retrieved chunks
+      prompt_tokens    — input tokens consumed (as reported by Bedrock SDK)
+      completion_tokens — output tokens consumed
+
+    Sources are extracted from chunk metadata rather than asking the LLM to
+    enumerate them, which is more reliable and avoids hallucinated references.
+    """
+    llm = get_chat_model(max_tokens=4096, timeout=90, temperature=0.1)
+
+    chunks = _retrieve_chunks(query, k=k)
+    context = "\n\n".join(c.page_content for c in chunks)
+    sources = sorted({c.metadata.get("source_name", "unknown") for c in chunks})
+
+    system_content = _load_prompt("system_qa_v2.md").replace("{context}", context)
+    messages = [
+        SystemMessage(content=system_content),
+        HumanMessage(content=query),
+    ]
+
+    response = llm.invoke(messages)
+    usage = response.usage_metadata or {}
+
+    return RAGResponse(
+        answer=str(response.content),
+        sources=sources,
+        prompt_tokens=usage.get("input_tokens", 0),
+        completion_tokens=usage.get("output_tokens", 0),
+    )

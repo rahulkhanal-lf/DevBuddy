@@ -1,24 +1,35 @@
 """
 MindFlow AI — RAG Evaluation Suite
-====================================
+=====================================
 LLM-as-judge evaluation over 10 test queries.
 
-Each query is scored by Amazon Nova Lite on three dimensions:
-  correctness   0-3  (is the answer factually right given the context?)
-  groundedness  0-3  (is every claim traceable to retrieved context?)
-  relevance     0-3  (does the answer address what was asked?)
+Query distribution:
+  in-corpus-single  3  — answerable from a single chunk
+  in-corpus-multi   3  — requires synthesis across multiple chunks
+  ambiguous         2  — partial context or multiple interpretations
+  out-of-corpus     2  — no relevant context; system must say "I don't know"
 
-Score key:  0 = completely wrong/missing  1 = partial  2 = mostly right  3 = perfect
+Each query is scored by Amazon Nova Lite on two dimensions (1–5 each):
+  retrieval_score   How relevant and complete are the retrieved chunks?
+  answer_score      How grounded, accurate, and relevant is the final answer?
+
+The judge uses chain-of-thought reasoning before scoring.
+
+Outputs:
+  stdout  — human-readable summary table
+  CSV     — project/results/eval_results.csv (required deliverable columns)
+  JSON    — eval/eval_results_<timestamp>.json (full detail)
 
 Run from the BE-FastAPI directory (so .env is loaded):
   cd BE-FastAPI
   python -I ../eval/run_eval.py
 
-Or provide a custom knowledge base summary as context via --context-file:
-  python -I ../eval/run_eval.py --context-file my_docs.txt
+Optional k override (for failure analysis):
+  python -I ../eval/run_eval.py --k 1
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -26,251 +37,291 @@ import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ── Bootstrap: load .env and add BE-FastAPI to sys.path ──────────────────────
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
 BE_DIR = Path(__file__).resolve().parent.parent / "BE-FastAPI"
+RESULTS_DIR = Path(__file__).resolve().parent.parent / "project" / "results"
 sys.path.insert(0, str(BE_DIR))
 
 from dotenv import load_dotenv
 load_dotenv(BE_DIR / ".env")
 
-from services.bedrock import get_chat_model  # noqa: E402
-from services.rag_service import rag_chat    # noqa: E402
+from services.bedrock import get_chat_model       # noqa: E402
+from services.rag_service import rag_chat_structured  # noqa: E402
 
-# ── 10 Test Queries ───────────────────────────────────────────────────────────
-# Categories:
-#   IN_SCOPE   — should be answerable from a typical engineering knowledge base
-#   OUT_SCOPE  — clearly outside any uploaded docs; expect "I don't know"
-#   EDGE       — partial information, ambiguous, or multi-hop questions
+# ── 10 Test Queries ────────────────────────────────────────────────────────────
+# Generated against the MindFlow AI engineering documentation corpus, then
+# reviewed and adjusted to cover all required difficulty types.
 
 TEST_QUERIES = [
+    # ── in-corpus-single (3) ─────────────────────────────────────────────────
     {
         "id": 1,
-        "category": "IN_SCOPE",
+        "type": "in-corpus-single",
         "question": "What is the purpose of the /api/files/upload endpoint?",
-        "intent": "Retrieve factual description of an API endpoint from documentation.",
         "expect_idk": False,
     },
     {
         "id": 2,
-        "category": "IN_SCOPE",
-        "question": "What authentication mechanism is used in this system?",
-        "intent": "Retrieve the auth strategy (JWT / Bearer token) from architecture docs.",
+        "type": "in-corpus-single",
+        "question": "Which AI model is used to generate mind maps in MindFlow AI?",
         "expect_idk": False,
     },
     {
         "id": 3,
-        "category": "IN_SCOPE",
-        "question": "Which AI model is used for generating mind maps?",
-        "intent": "Retrieve the LLM model name from technical documentation.",
+        "type": "in-corpus-single",
+        "question": "What database technology is used for vector storage and similarity search?",
         "expect_idk": False,
     },
+    # ── in-corpus-multi (3) ──────────────────────────────────────────────────
     {
         "id": 4,
-        "category": "IN_SCOPE",
-        "question": "How are PDF files processed and stored for retrieval?",
-        "intent": "Retrieve the ingestion pipeline description (chunking, embedding, pgvector).",
+        "type": "in-corpus-multi",
+        "question": "How does MindFlow AI process a PDF file from upload through to being searchable? Walk through each step.",
         "expect_idk": False,
     },
     {
         "id": 5,
-        "category": "IN_SCOPE",
-        "question": "What database is used for vector storage and similarity search?",
-        "intent": "Retrieve the vector store technology (pgvector / PostgreSQL).",
+        "type": "in-corpus-multi",
+        "question": "What authentication mechanism is used and how are JWT tokens issued and validated?",
         "expect_idk": False,
     },
     {
         "id": 6,
-        "category": "EDGE",
-        "question": "What is the maximum number of retries configured for Bedrock API calls?",
-        "intent": "Tests retrieval of specific numeric configuration detail.",
+        "type": "in-corpus-multi",
+        "question": "How does real-time collaboration work when two users edit the same mind map simultaneously?",
         "expect_idk": False,
     },
+    # ── ambiguous (2) ────────────────────────────────────────────────────────
     {
         "id": 7,
-        "category": "EDGE",
-        "question": "How does the system handle expired AWS session tokens?",
-        "intent": "Tests retrieval of error handling logic — may require cross-chunk synthesis.",
+        "type": "ambiguous",
+        "question": "How does the system handle errors?",
         "expect_idk": False,
     },
     {
         "id": 8,
-        "category": "EDGE",
-        "question": "What happens when two users edit the same mind map simultaneously?",
-        "intent": "Tests retrieval of WebSocket collaboration behaviour.",
+        "type": "ambiguous",
+        "question": "What is the maximum number of retries configured for external API calls?",
         "expect_idk": False,
     },
+    # ── out-of-corpus (2) ────────────────────────────────────────────────────
     {
         "id": 9,
-        "category": "OUT_SCOPE",
+        "type": "out-of-corpus",
         "question": "What is the capital of France?",
-        "intent": "Completely out of scope — system must say I don't know.",
         "expect_idk": True,
     },
     {
         "id": 10,
-        "category": "OUT_SCOPE",
+        "type": "out-of-corpus",
         "question": "How do I configure a Kubernetes ingress controller for TLS termination?",
-        "intent": "Engineering topic but not in this knowledge base — expect I don't know.",
         "expect_idk": True,
     },
 ]
 
-# ── Judge prompt ──────────────────────────────────────────────────────────────
+# ── Judge prompt (with Chain-of-Thought) ──────────────────────────────────────
+# CoT is applied here: the judge explicitly reasons through four steps before
+# assigning scores. This reduces score anchoring bias and produces more
+# calibrated 1–5 ratings.
+
 JUDGE_SYSTEM = textwrap.dedent("""
     You are an impartial evaluation judge for a Retrieval-Augmented Generation (RAG) system.
+
     You will be given:
       - A question
-      - The system's answer
-      - Whether the question was expected to be answerable (expect_idk)
+      - The chunks retrieved from the knowledge base
+      - The system's final answer
+      - Whether the question was expected to trigger an "I don't know" response
 
-    Score the answer on THREE dimensions, each 0-3:
+    CHAIN-OF-THOUGHT — reason step by step before scoring:
+      Step 1: What is the question specifically asking for?
+      Step 2: What information do the retrieved chunks actually contain?
+              Are the chunks relevant? Do they cover what the question needs?
+      Step 3: Does the final answer directly address the question?
+              Is every claim traceable to the chunks (not to general knowledge)?
+      Step 4: Are there gaps, hallucinations, or irrelevant content in the answer?
 
-    correctness (0-3):
-      3 = factually accurate and complete
-      2 = mostly correct with minor gaps
-      1 = partially correct but significant errors or omissions
-      0 = wrong or hallucinated
+    After reasoning, assign two integer scores on a 1–5 scale:
 
-    groundedness (0-3):
-      3 = every claim is clearly traceable to provided context; no fabrication
-      2 = mostly grounded, one small unsupported inference
-      1 = partially grounded, notable unsupported claims
-      0 = answer is not grounded — fabricated from training data
+    retrieval_score (1–5): Quality of the retrieved chunks
+      5 = Chunks are highly relevant and contain everything needed to answer
+      4 = Mostly relevant; minor gaps
+      3 = Partially relevant; missing some important context
+      2 = Mostly irrelevant; very little useful content
+      1 = Completely irrelevant or empty
 
-    relevance (0-3):
-      3 = directly and fully addresses the question
-      2 = mostly relevant, minor tangents
-      1 = partially relevant
-      0 = off-topic
+    answer_score (1–5): Quality of the final answer
+      5 = Fully correct, grounded in retrieved context, directly addresses question
+      4 = Mostly correct; minor gaps or slight over-generalisation
+      3 = Partially correct; notable gaps or one unsupported claim
+      2 = Mostly wrong or significantly under-answers the question
+      1 = Completely wrong, hallucinated, or fabricated from training data
 
-    Special rule for OUT_SCOPE / expect_idk=true queries:
-      If the system correctly says "I don't know / I don't have enough information",
-      award groundedness=3, relevance=3, correctness=3.
-      If it hallucinates an answer instead, award correctness=0, groundedness=0.
+    Special rule for out-of-corpus / expect_idk=true queries:
+      If the system correctly declines ("I don't have enough information..."),
+      award retrieval_score=5 and answer_score=5.
+      If it hallucinates an answer, award retrieval_score=1 and answer_score=1.
 
     Respond with ONLY valid JSON in this exact shape, no other text:
     {
-      "correctness": <int 0-3>,
-      "groundedness": <int 0-3>,
-      "relevance": <int 0-3>,
-      "reasoning": "<one sentence>"
+      "cot_reasoning": "<your step-by-step reasoning, 2-4 sentences>",
+      "retrieval_score": <int 1-5>,
+      "answer_score": <int 1-5>
     }
 """).strip()
 
 JUDGE_HUMAN = textwrap.dedent("""
     Question: {question}
     Expected to say "I don't know": {expect_idk}
+    Retrieved sources: {sources}
     System answer: {answer}
 """).strip()
 
 
-def judge(llm, question: str, answer: str, expect_idk: bool) -> dict:
+def judge(llm, question: str, answer: str, sources: list[str], expect_idk: bool) -> dict:
     from langchain_core.messages import HumanMessage, SystemMessage
     msgs = [
         SystemMessage(content=JUDGE_SYSTEM),
         HumanMessage(content=JUDGE_HUMAN.format(
             question=question,
-            answer=answer,
             expect_idk=expect_idk,
+            sources=", ".join(sources) if sources else "(none)",
+            answer=answer,
         )),
     ]
     try:
-        raw = llm.invoke(msgs).content.strip()
-        # Strip markdown code fences if present
+        resp = llm.invoke(msgs)
+        raw = str(resp.content).strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
         return json.loads(raw)
     except Exception as exc:
-        return {"correctness": -1, "groundedness": -1, "relevance": -1,
-                "reasoning": f"Judge failed: {exc}"}
+        return {
+            "cot_reasoning": f"Judge call failed: {exc}",
+            "retrieval_score": -1,
+            "answer_score": -1,
+        }
 
 
-def bar(score: int, max_score: int = 3) -> str:
-    filled = round(score / max_score * 10)
-    return "█" * filled + "░" * (10 - filled)
-
-
-def run(context_file: str | None = None) -> None:
-    print("\n" + "=" * 64)
+def run(k: int = 4) -> None:
+    ts = datetime.now(timezone.utc)
+    print("\n" + "=" * 70)
     print("  MindFlow AI — RAG Evaluation Suite")
-    print(f"  Run at: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
-    print("=" * 64 + "\n")
+    print(f"  Run at: {ts.strftime('%Y-%m-%d %H:%M UTC')}  |  retrieval k={k}")
+    print("=" * 70 + "\n")
 
-    # Use a separate LLM instance for the judge (same model, higher token limit)
-    judge_llm = get_chat_model(max_tokens=512, timeout=60)
-
-    results = []
+    judge_llm = get_chat_model(max_tokens=1024, timeout=90, temperature=0)
+    rows = []
 
     for q in TEST_QUERIES:
-        print(f"[{q['id']:02d}/{len(TEST_QUERIES)}] {q['category']:10s}  {q['question'][:60]}")
-        print(f"         Intent: {q['intent']}")
+        print(f"[{q['id']:02d}/{len(TEST_QUERIES)}] {q['type']:20s}  {q['question'][:55]}")
 
-        # Get RAG answer
+        # ── RAG call ──────────────────────────────────────────────────────────
         try:
-            answer = rag_chat(q["question"])
+            rag = rag_chat_structured(q["question"], k=k)
+            answer = rag.answer
+            sources = rag.sources
+            prompt_tokens = rag.prompt_tokens
+            completion_tokens = rag.completion_tokens
         except Exception as exc:
             answer = f"[RAG ERROR: {exc}]"
+            sources = []
+            prompt_tokens = completion_tokens = 0
 
-        print(f"         Answer: {answer[:120]}{'…' if len(answer) > 120 else ''}")
+        print(f"         Answer  : {answer[:110]}{'…' if len(answer) > 110 else ''}")
+        print(f"         Sources : {sources}")
+        print(f"         Tokens  : prompt={prompt_tokens}  completion={completion_tokens}")
 
-        # Judge it
-        scores = judge(judge_llm, q["question"], answer, q["expect_idk"])
-        c, g, r = scores.get("correctness", -1), scores.get("groundedness", -1), scores.get("relevance", -1)
-        total = (c + g + r) if all(x >= 0 for x in [c, g, r]) else -1
+        # ── Judge call ───────────────────────────────────────────────────────
+        scores = judge(judge_llm, q["question"], answer, sources, q["expect_idk"])
+        rs = scores.get("retrieval_score", -1)
+        as_ = scores.get("answer_score", -1)
 
-        print(f"         Scores — correctness:{c}/3  groundedness:{g}/3  relevance:{r}/3  total:{total}/9")
-        print(f"         Reason: {scores.get('reasoning', '')}\n")
+        print(f"         Scores  : retrieval={rs}/5  answer={as_}/5")
+        print(f"         CoT     : {scores.get('cot_reasoning', '')[:100]}\n")
 
-        results.append({**q, "answer": answer, "scores": scores, "total": total})
+        rows.append({
+            "query": q["question"],
+            "type": q["type"],
+            "answer": answer,
+            "sources": "; ".join(sources),
+            "retrieval_score": rs,
+            "answer_score": as_,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            # Internal fields for JSON output
+            "_id": q["id"],
+            "_expect_idk": q["expect_idk"],
+            "_cot": scores.get("cot_reasoning", ""),
+        })
 
-    # ── Summary table ────────────────────────────────────────────────────────
-    print("=" * 64)
+    # ── Summary table ─────────────────────────────────────────────────────────
+    print("=" * 70)
     print("  SUMMARY")
-    print("=" * 64)
-    print(f"{'ID':>3}  {'CAT':10}  {'C':>2}  {'G':>2}  {'R':>2}  {'TOT':>4}  Question")
-    print("-" * 64)
-    grand_total = 0
-    valid = 0
-    for r in results:
-        s = r["scores"]
-        c, g, rv = s.get("correctness", -1), s.get("groundedness", -1), s.get("relevance", -1)
-        tot = r["total"]
-        print(f"{r['id']:>3}  {r['category']:10}  {c:>2}  {g:>2}  {rv:>2}  {tot:>4}  {r['question'][:35]}")
-        if tot >= 0:
-            grand_total += tot
+    print("=" * 70)
+    print(f"{'ID':>3}  {'TYPE':20s}  {'RET':>4}  {'ANS':>4}  {'PT':>6}  {'CT':>6}  Question")
+    print("-" * 70)
+    total_ret = total_ans = total_pt = total_ct = valid = 0
+    for r in rows:
+        rr, ra = r["retrieval_score"], r["answer_score"]
+        print(f"{r['_id']:>3}  {r['type']:20s}  {rr:>4}  {ra:>4}  "
+              f"{r['prompt_tokens']:>6}  {r['completion_tokens']:>6}  "
+              f"{r['query'][:30]}")
+        if rr > 0 and ra > 0:
+            total_ret += rr
+            total_ans += ra
+            total_pt += r["prompt_tokens"]
+            total_ct += r["completion_tokens"]
             valid += 1
 
-    max_possible = valid * 9
-    pct = grand_total / max_possible * 100 if max_possible else 0
-    print("-" * 64)
-    print(f"     Total: {grand_total}/{max_possible}  ({pct:.1f}%)")
+    max_ret = valid * 5
+    max_ans = valid * 5
+    print("-" * 70)
+    print(f"     Retrieval total : {total_ret}/{max_ret}  ({total_ret/max_ret*100:.1f}%)" if max_ret else "     No valid scores")
+    print(f"     Answer total    : {total_ans}/{max_ans}  ({total_ans/max_ans*100:.1f}%)" if max_ans else "")
+    print(f"     Total tokens    : prompt={total_pt}  completion={total_ct}")
     print()
 
-    # Hallucination check — OUT_SCOPE queries with non-zero correctness from
-    # hallucinated answers
-    idk_failures = [
-        r for r in results
-        if r["expect_idk"] and r["scores"].get("groundedness", 3) < 2
-    ]
-    if idk_failures:
-        print(f"  ⚠  HALLUCINATION DETECTED on {len(idk_failures)} out-of-scope queries:")
-        for f in idk_failures:
-            print(f"     Q{f['id']}: {f['question']}")
+    # Token analysis
+    if valid:
+        highest_pt = max(rows, key=lambda r: r["prompt_tokens"])
+        print(f"  Highest prompt token usage: Q{highest_pt['_id']} ({highest_pt['type']}) "
+              f"— {highest_pt['prompt_tokens']} tokens")
+        print(f"  Query: {highest_pt['query']}")
+        print()
+
+    # Hallucination check
+    hallucinations = [r for r in rows if r["_expect_idk"] and r["answer_score"] < 4]
+    if hallucinations:
+        print(f"  WARNING: Possible hallucination on {len(hallucinations)} out-of-corpus queries:")
+        for h in hallucinations:
+            print(f"     Q{h['_id']}: {h['query']}")
     else:
-        print("  ✓  No hallucinations detected on out-of-scope queries.")
-
+        print("  OK: No hallucinations detected on out-of-corpus queries.")
     print()
 
-    # Save results
-    out_path = Path(__file__).parent / f"eval_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    out_path.write_text(json.dumps(results, indent=2, ensure_ascii=False))
-    print(f"  Full results saved to: {out_path}\n")
+    # ── Write CSV (required deliverable) ─────────────────────────────────────
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    csv_path = RESULTS_DIR / "eval_results.csv"
+    csv_columns = ["query", "type", "answer", "sources",
+                   "retrieval_score", "answer_score", "prompt_tokens", "completion_tokens"]
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=csv_columns, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"  CSV results  → {csv_path}")
+
+    # ── Write JSON (full detail) ──────────────────────────────────────────────
+    json_path = Path(__file__).parent / f"eval_results_{ts.strftime('%Y%m%d_%H%M%S')}.json"
+    json_path.write_text(json.dumps(rows, indent=2, ensure_ascii=False))
+    print(f"  JSON results → {json_path}\n")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run MindFlow AI RAG evaluation")
-    parser.add_argument("--context-file", help="Path to a plain-text file to use as additional context")
+    parser.add_argument("--k", type=int, default=4,
+                        help="Number of chunks to retrieve (default 4; use 1 for failure analysis)")
     args = parser.parse_args()
-    run(context_file=args.context_file)
+    run(k=args.k)
