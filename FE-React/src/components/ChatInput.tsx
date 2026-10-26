@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { ArrowUp } from "lucide-react";
 import "./ChatInput.css";
 
 interface Props {
@@ -42,7 +43,7 @@ export default function ChatInput({ onSend, disabled }: Props) {
         <textarea
           ref={textareaRef}
           className="chat-textarea"
-          placeholder="Message DevBuddy…"
+          placeholder="Message MindFlow AI…"
           value={value}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
@@ -55,10 +56,7 @@ export default function ChatInput({ onSend, disabled }: Props) {
           disabled={!value.trim() || disabled}
           aria-label="Send"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
+          <ArrowUp size={17} strokeWidth={2.2} />
         </button>
       </div>
       <p className="input-hint">Press Enter to send · Shift+Enter for new line</p>

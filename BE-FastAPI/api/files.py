@@ -2,6 +2,7 @@ import os
 from uuid import uuid4
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, UploadFile, File, Depends, HTTPException, status
+from fastapi.responses import FileResponse as FileStreamResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -70,6 +71,22 @@ def get_file(file_id: str, db: Session = Depends(get_db)):
     if not db_file:
         raise HTTPException(status_code=404, detail="File not found")
     return db_file
+
+
+@router.get("/{file_id}/content")
+def view_file(file_id: str, db: Session = Depends(get_db)):
+    """Stream the raw PDF so the frontend can display it in an iframe."""
+    db_file = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="File not found")
+    file_path = os.path.join(UPLOAD_DIR, db_file.filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    return FileStreamResponse(
+        file_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{db_file.original_name}"'},
+    )
 
 
 @router.delete("/{file_id}")

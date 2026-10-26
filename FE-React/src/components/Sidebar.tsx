@@ -1,13 +1,21 @@
 import { useRef, useState } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { Bot, BrainCircuit, FileText, House, MessageSquare, Moon, Network, Paperclip, Plus, Sun, X, type LucideIcon } from "lucide-react";
+import { useTheme } from "../theme";
 import type { Conversation, UploadedFile } from "../types";
 import "./Sidebar.css";
+
+const NAV_ITEMS: { to: string; icon: LucideIcon; label: string }[] = [
+  { to: "/", icon: House, label: "Home" },
+  { to: "/chat", icon: MessageSquare, label: "Chat" },
+  { to: "/knowledge", icon: BrainCircuit, label: "Knowledge" },
+  { to: "/maps", icon: Network, label: "Mind maps" },
+];
 
 interface Props {
   conversations: Conversation[];
   activeId: string | null;
   uploadedFiles: UploadedFile[];
-  currentPage: "chat" | "files";
-  onPageChange: (page: "chat" | "files") => void;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
@@ -25,8 +33,6 @@ export default function Sidebar({
   conversations,
   activeId,
   uploadedFiles,
-  currentPage,
-  onPageChange,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
@@ -35,6 +41,9 @@ export default function Sidebar({
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const onChatPage = useLocation().pathname.startsWith("/chat");
+  const navClass = ({ isActive }: { isActive: boolean }) => `nav-link${isActive ? " active" : ""}`;
+  const { theme, toggleTheme } = useTheme();
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -88,33 +97,31 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
-        <div className="sidebar-brand">
-          <span className="sidebar-logo">🤖</span>
-          <span className="sidebar-title">DevBuddy</span>
-        </div>
+        <Link to="/" className="sidebar-brand">
+          <span className="sidebar-logo"><Bot size={18} strokeWidth={2.2} /></span>
+          <span className="sidebar-title">MindFlow AI</span>
+        </Link>
 
-        <div className="page-tabs">
-          <button
-            className={`page-tab ${currentPage === "chat" ? "active" : ""}`}
-            onClick={() => onPageChange("chat")}
-          >
-            💬 Chat
-          </button>
-          <button
-            className={`page-tab ${currentPage === "files" ? "active" : ""}`}
-            onClick={() => onPageChange("files")}
-          >
-            🧠 Knowledge
-          </button>
-        </div>
+        <nav className="sidebar-nav" aria-label="Main">
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.to === "/"} className={navClass}>
+              <item.icon className="nav-icon" size={18} />
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
 
-        {currentPage === "chat" && (
+        {onChatPage && (
           <button className="new-chat-btn" onClick={onNewChat}>
-            <span className="new-chat-icon">+</span>
+            <Plus className="new-chat-icon" size={16} />
             New Chat
           </button>
         )}
       </div>
+
+      {!onChatPage && <div className="sidebar-spacer" />}
+      {onChatPage && (
+        <>
 
       <div className="sidebar-section-label">Conversations</div>
       <nav className="conversation-list">
@@ -127,7 +134,7 @@ export default function Sidebar({
             className={`conv-item ${c.id === activeId ? "active" : ""}`}
             onClick={() => onSelectConversation(c.id)}
           >
-            <span className="conv-icon">💬</span>
+            <MessageSquare className="conv-icon" size={15} />
             <span className="conv-title">{c.title}</span>
             <button
               className="conv-delete"
@@ -136,8 +143,9 @@ export default function Sidebar({
                 onDeleteConversation(c.id);
               }}
               title="Delete"
+              aria-label="Delete conversation"
             >
-              ×
+              <X size={15} />
             </button>
           </div>
         ))}
@@ -152,7 +160,7 @@ export default function Sidebar({
         onDrop={handleDrop}
         onClick={() => !isUploading && fileInputRef.current?.click()}
       >
-        <span className="upload-icon">📎</span>
+        <Paperclip className="upload-icon" size={18} />
         <span className="upload-text">
           {isUploading ? "Uploading..." : "Drop files or click to upload"}
         </span>
@@ -170,7 +178,7 @@ export default function Sidebar({
         <ul className="file-list">
           {uploadedFiles.map((f) => (
             <li key={f.id} className="file-item">
-              <span className="file-icon">📄</span>
+              <FileText className="file-icon" size={15} />
               <span className="file-info">
                 <span className="file-name">{f.original_name}</span>
                 <span className="file-size">{formatSize(f.file_size)}</span>
@@ -179,13 +187,23 @@ export default function Sidebar({
                 className="file-remove"
                 onClick={() => handleRemoveFile(f.id)}
                 title="Remove"
+                aria-label="Remove file"
               >
-                ×
+                <X size={14} />
               </button>
             </li>
           ))}
         </ul>
       )}
+        </>
+      )}
+
+      <div className="sidebar-footer">
+        <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
+          {theme === "dark" ? <Sun className="nav-icon" size={18} /> : <Moon className="nav-icon" size={18} />}
+          {theme === "dark" ? "Light theme" : "Dark theme"}
+        </button>
+      </div>
     </aside>
   );
 }

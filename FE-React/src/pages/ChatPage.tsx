@@ -1,19 +1,7 @@
-import { useState, useEffect } from "react";
+import { Paperclip } from "lucide-react";
 import ChatArea from "../components/ChatArea";
 import ChatInput from "../components/ChatInput";
-import type { Conversation, Message } from "../types";
-
-const MOCK_REPLIES = [
-  "That's a great question! Let me think through that for you.",
-  "Based on the documents you've uploaded, here's what I found...",
-  "I can help with that. Here's a detailed explanation:",
-  "Sure! Here's a breakdown of what you're asking about.",
-  "Interesting! From what I can see, the answer involves a few key concepts.",
-];
-
-function mockReply() {
-  return MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)];
-}
+import type { Conversation } from "../types";
 
 interface Props {
   conversations: Conversation[];
@@ -29,7 +17,6 @@ export default function ChatPage({
   activeId,
   uploadedFilesCount,
   onSend,
-  onNewChat,
   isTyping,
 }: Props) {
   const activeConversation = conversations.find((c) => c.id === activeId) ?? null;
@@ -42,7 +29,7 @@ export default function ChatPage({
         </span>
         {uploadedFilesCount > 0 && (
           <span className="chat-header-badge">
-            📎 {uploadedFilesCount} file{uploadedFilesCount > 1 ? "s" : ""}
+            <Paperclip size={12} /> {uploadedFilesCount} file{uploadedFilesCount > 1 ? "s" : ""}
           </span>
         )}
       </header>

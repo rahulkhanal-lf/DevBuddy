@@ -1,23 +1,37 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { Outlet, useMatch, useNavigate } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
-import ChatPage from "./pages/ChatPage";
-import FilesPage from "./pages/FilesPage";
-import type { Conversation, Message, UploadedFile } from "./types";
+import { ThemeContext, useThemeState } from "./theme";
+import type { AppOutletContext, Conversation, Message, UploadedFile } from "./types";
 import "./App.css";
 
 const API = "http://localhost:8000";
 
 export default function App() {
+  const navigate = useNavigate();
+  const themeState = useThemeState();
+  const chatMatch = useMatch("/chat/:conversationId");
+  const activeId = chatMatch?.params.conversationId ?? null;
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isTyping, setIsTyping] = useState(false);
-  const [currentPage, setCurrentPage] = useState<"chat" | "files">("chat");
+  const requestedMessages = useRef(new Set<string>());
 
   useEffect(() => {
     fetchConversations();
     fetchFileHistory();
   }, []);
+
+  // Load messages the first time a conversation is opened (by click or by URL)
+  useEffect(() => {
+    if (!activeId || requestedMessages.current.has(activeId)) return;
+    const existing = conversations.find((c) => c.id === activeId);
+    if (!existing || existing.messages.length > 0) return;
+    requestedMessages.current.add(activeId);
+    loadMessages(activeId);
+  }, [activeId, conversations]);
 
   async function fetchConversations() {
     try {
@@ -25,6 +39,8 @@ export default function App() {
       if (res.ok) setConversations(await res.json());
     } catch {
       console.error("Failed to fetch conversations");
+    } finally {
+      setConversationsLoaded(true);
     }
   }
 
@@ -37,25 +53,24 @@ export default function App() {
     }
   }
 
-  function handleNewChat() {
-    setActiveId(null);
+  async function loadMessages(id: string) {
+    try {
+      const res = await fetch(`${API}/api/conversations/${id}`);
+      if (res.ok) {
+        const full: Conversation = await res.json();
+        setConversations((prev) => prev.map((c) => (c.id === id ? full : c)));
+      }
+    } catch {
+      console.error("Failed to load conversation messages");
+    }
   }
 
-  async function handleSelectConversation(id: string) {
-    setActiveId(id);
-    // Load messages the first time a conversation is selected
-    const existing = conversations.find((c) => c.id === id);
-    if (existing && existing.messages.length === 0) {
-      try {
-        const res = await fetch(`${API}/api/conversations/${id}`);
-        if (res.ok) {
-          const full: Conversation = await res.json();
-          setConversations((prev) => prev.map((c) => (c.id === id ? full : c)));
-        }
-      } catch {
-        console.error("Failed to load conversation messages");
-      }
-    }
+  function handleNewChat() {
+    navigate("/chat");
+  }
+
+  function handleSelectConversation(id: string) {
+    navigate(`/chat/${id}`);
   }
 
   async function handleDeleteConversation(id: string) {
@@ -65,7 +80,7 @@ export default function App() {
       console.error("Failed to delete conversation");
     }
     setConversations((prev) => prev.filter((c) => c.id !== id));
-    if (activeId === id) setActiveId(null);
+    if (activeId === id) navigate("/chat");
   }
 
   function handleFilesUpload(files: UploadedFile[]) {
@@ -74,6 +89,20 @@ export default function App() {
 
   function handleRemoveFile(id: string) {
     setUploadedFiles((prev) => prev.filter((f) => f.id !== id));
+  }
+
+  // Shown in the thread only (not saved), so the user knows the reply failed
+  function showChatError(convId: string, text: string) {
+    const errorMsg: Message = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: text,
+      created_at: new Date().toISOString(),
+      error: true,
+    };
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, messages: [...c.messages, errorMsg] } : c))
+    );
   }
 
   async function handleSend(content: string) {
@@ -97,8 +126,9 @@ export default function App() {
         if (!res.ok) return;
         const conv: Conversation = await res.json();
         convId = conv.id;
+        requestedMessages.current.add(conv.id);
         setConversations((prev) => [{ ...conv, messages: [userMsg] }, ...prev]);
-        setActiveId(convId);
+        navigate(`/chat/${conv.id}`);
       } catch {
         console.error("Failed to create conversation");
         return;
@@ -136,44 +166,50 @@ export default function App() {
               : c
           )
         );
+      } else {
+        let detail = `The server returned an error (${res.status}).`;
+        try {
+          const body = await res.json();
+          if (typeof body.detail === "string") detail = body.detail;
+        } catch {
+          // Non-JSON error body; keep the generic message
+        }
+        showChatError(convId, detail);
       }
     } catch {
-      console.error("Chat request failed");
+      showChatError(convId, "Can't reach the server. Check that the backend is running.");
     } finally {
       setIsTyping(false);
     }
   }
 
+  const outletContext: AppOutletContext = {
+    conversations,
+    conversationsLoaded,
+    activeId,
+    uploadedFiles,
+    isTyping,
+    onSend: handleSend,
+    onNewChat: handleNewChat,
+    onFilesUpload: handleFilesUpload,
+    onRemoveFile: handleRemoveFile,
+  };
+
   return (
+    <ThemeContext.Provider value={themeState}>
     <div className="app">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
         uploadedFiles={uploadedFiles}
-        currentPage={currentPage}
-        onPageChange={setCurrentPage}
         onNewChat={handleNewChat}
         onSelectConversation={handleSelectConversation}
         onDeleteConversation={handleDeleteConversation}
         onFilesUpload={handleFilesUpload}
         onRemoveFile={handleRemoveFile}
       />
-      {currentPage === "chat" ? (
-        <ChatPage
-          conversations={conversations}
-          activeId={activeId}
-          uploadedFilesCount={uploadedFiles.length}
-          onSend={handleSend}
-          onNewChat={handleNewChat}
-          isTyping={isTyping}
-        />
-      ) : (
-        <FilesPage
-          files={uploadedFiles}
-          onFilesUpload={handleFilesUpload}
-          onRemoveFile={handleRemoveFile}
-        />
-      )}
+      <Outlet context={outletContext} />
     </div>
+    </ThemeContext.Provider>
   );
 }

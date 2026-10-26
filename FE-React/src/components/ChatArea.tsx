@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Bot, CircleAlert, MessageSquare, User } from "lucide-react";
 import type { Message } from "../types";
 import "./ChatArea.css";
 
@@ -21,14 +22,16 @@ export default function ChatArea({ messages, isTyping }: Props) {
   if (messages.length === 0) {
     return (
       <div className="chat-empty">
-        <div className="chat-empty-icon">🤖</div>
-        <h2 className="chat-empty-title">How can I help you today?</h2>
+        <div className="chat-empty-icon">
+          <MessageSquare size={20} />
+        </div>
+        <h2 className="chat-empty-title">Start a conversation</h2>
         <p className="chat-empty-sub">
-          Upload documents from the sidebar and start chatting.
+          Ask about your knowledge base, a piece of code, or anything you're working on.
         </p>
         <div className="chat-suggestions">
           {[
-            "Summarize my uploaded document",
+            "Summarize my knowledge base",
             "Explain this code snippet",
             "Help me debug an issue",
             "Write unit tests for this function",
@@ -45,9 +48,9 @@ export default function ChatArea({ messages, isTyping }: Props) {
   return (
     <div className="chat-area">
       {messages.map((msg) => (
-        <div key={msg.id} className={`message-row ${msg.role}`}>
+        <div key={msg.id} className={`message-row ${msg.role}${msg.error ? " error" : ""}`}>
           <div className="message-avatar">
-            {msg.role === "assistant" ? "🤖" : "👤"}
+            {msg.error ? <CircleAlert size={15} /> : msg.role === "assistant" ? <Bot size={15} /> : <User size={15} />}
           </div>
           <div className="message-body">
             <div className="message-bubble">{msg.content}</div>
@@ -58,7 +61,9 @@ export default function ChatArea({ messages, isTyping }: Props) {
 
       {isTyping && (
         <div className="message-row assistant">
-          <div className="message-avatar">🤖</div>
+          <div className="message-avatar">
+            <Bot size={15} />
+          </div>
           <div className="message-body">
             <div className="message-bubble typing-bubble">
               <span className="dot" />

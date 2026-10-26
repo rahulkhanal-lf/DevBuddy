@@ -1,6 +1,9 @@
 import { useRef, useState, useEffect } from "react";
+import { CircleAlert, Eye, FileText, NotebookPen, Trash2, Upload, X } from "lucide-react";
 import type { UploadedFile, KnowledgeText } from "../types";
 import "./FilesPage.css";
+
+const API = "http://localhost:8000";
 
 interface Props {
   files: UploadedFile[];
@@ -24,10 +27,60 @@ function formatDate(dateString: string) {
   });
 }
 
+interface PdfViewerProps {
+  file: UploadedFile;
+  onClose: () => void;
+}
+
+function PdfViewer({ file, onClose }: PdfViewerProps) {
+  const url = `${API}/api/files/${file.id}/content`;
+
+  // Close on backdrop click
+  function handleBackdrop(e: React.MouseEvent) {
+    if (e.target === e.currentTarget) onClose();
+  }
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div className="pdf-backdrop" onMouseDown={handleBackdrop}>
+      <div className="pdf-modal">
+        <div className="pdf-modal-header">
+          <span className="pdf-modal-title">
+            <FileText size={15} /> {file.original_name}
+          </span>
+          <a
+            className="pdf-modal-download"
+            href={url}
+            download={file.original_name}
+            title="Download"
+          >
+            Download
+          </a>
+          <button className="pdf-modal-close" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <iframe
+          className="pdf-frame"
+          src={url}
+          title={file.original_name}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [viewingFile, setViewingFile] = useState<UploadedFile | null>(null);
 
   const [knowledgeList, setKnowledgeList] = useState<KnowledgeText[]>([]);
   const [title, setTitle] = useState("");
@@ -40,7 +93,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
 
   async function fetchKnowledge() {
     try {
-      const res = await fetch("http://localhost:8000/api/knowledge");
+      const res = await fetch(`${API}/api/knowledge`);
       if (res.ok) setKnowledgeList(await res.json());
     } catch (e) {
       console.error("Failed to fetch knowledge:", e);
@@ -51,7 +104,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
     if (!title.trim() || !content.trim()) return;
     setIsSaving(true);
     try {
-      const res = await fetch("http://localhost:8000/api/knowledge", {
+      const res = await fetch(`${API}/api/knowledge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: title.trim(), content: content.trim() }),
@@ -71,7 +124,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
 
   async function handleDeleteKnowledge(id: string) {
     try {
-      const res = await fetch(`http://localhost:8000/api/knowledge/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API}/api/knowledge/${id}`, { method: "DELETE" });
       if (res.ok) setKnowledgeList((prev) => prev.filter((k) => k.id !== id));
     } catch (e) {
       console.error("Failed to delete knowledge:", e);
@@ -85,7 +138,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
       for (const file of filesToUpload) {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await fetch("http://localhost:8000/api/files/upload", {
+        const res = await fetch(`${API}/api/files/upload`, {
           method: "POST",
           body: formData,
         });
@@ -105,7 +158,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
 
   async function handleRemoveFile(fileId: string) {
     try {
-      const res = await fetch(`http://localhost:8000/api/files/${fileId}`, { method: "DELETE" });
+      const res = await fetch(`${API}/api/files/${fileId}`, { method: "DELETE" });
       if (res.ok) onRemoveFile(fileId);
     } catch (e) {
       console.error("Delete failed:", e);
@@ -116,9 +169,12 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
     <div className="files-page">
       <div className="files-container">
 
-        {/* ── PDF Upload ───────────────────────────────── */}
+        <h1 className="page-title">Knowledge</h1>
+        <p className="page-sub">Documents and notes here are searched when you chat.</p>
+
+        {/* ── PDF Upload ───────────────────────────── */}
         <div className="section-header">
-          <h2>📄 PDF Knowledge</h2>
+          <h2><FileText size={16} /> PDF documents</h2>
           <span className="section-sub">Only PDF files are accepted</span>
         </div>
 
@@ -128,8 +184,8 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
           onDrop={(e) => { e.preventDefault(); uploadFiles(Array.from(e.dataTransfer.files)); }}
           onClick={() => !isUploading && fileInputRef.current?.click()}
         >
-          <span className="drop-icon">⬆️</span>
-          <p className="drop-label">{isUploading ? "Uploading..." : "Drop PDF or click to browse"}</p>
+          <Upload size={20} />
+          <p className="drop-label">{isUploading ? "Uploading…" : "Drop a PDF here, or click to browse"}</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -141,10 +197,10 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
           />
         </div>
 
-        {uploadError && <p className="error-msg">⚠️ {uploadError}</p>}
+        {uploadError && <p className="error-msg"><CircleAlert size={14} /> {uploadError}</p>}
 
         {files.length === 0 ? (
-          <p className="empty-state">No PDFs uploaded yet</p>
+          <p className="empty-state">No documents yet.</p>
         ) : (
           <table className="knowledge-table">
             <thead>
@@ -158,11 +214,28 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
             <tbody>
               {files.map((file) => (
                 <tr key={file.id}>
-                  <td className="filename"><span>📎</span>{file.original_name}</td>
+                  <td className="filename"><FileText size={15} />{file.original_name}</td>
                   <td>{formatSize(file.file_size)}</td>
                   <td className="date">{formatDate(file.uploaded_at)}</td>
                   <td>
-                    <button className="delete-btn" onClick={() => handleRemoveFile(file.id)}>🗑️</button>
+                    <div className="file-actions">
+                      <button
+                        className="view-btn"
+                        onClick={() => setViewingFile(file)}
+                        aria-label="View PDF"
+                        title="View"
+                      >
+                        <Eye size={15} />
+                      </button>
+                      <button
+                        className="delete-btn"
+                        onClick={() => handleRemoveFile(file.id)}
+                        aria-label="Delete file"
+                        title="Delete"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -174,8 +247,8 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
 
         {/* ── Knowledge Text ───────────────────────────── */}
         <div className="section-header">
-          <h2>📝 Text Knowledge</h2>
-          <span className="section-sub">Add knowledge as plain text</span>
+          <h2><NotebookPen size={16} /> Notes</h2>
+          <span className="section-sub">Plain text the assistant can refer to</span>
         </div>
 
         <div className="knowledge-form">
@@ -198,20 +271,20 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
             onClick={handleSaveKnowledge}
             disabled={!title.trim() || !content.trim() || isSaving}
           >
-            {isSaving ? "Saving..." : "Save Knowledge"}
+            {isSaving ? "Saving…" : "Save note"}
           </button>
         </div>
 
         {knowledgeList.length === 0 ? (
-          <p className="empty-state">No knowledge text saved yet</p>
+          <p className="empty-state">No notes yet.</p>
         ) : (
           <div className="knowledge-cards">
             {knowledgeList.map((k) => (
               <div key={k.id} className="knowledge-card">
                 <div className="knowledge-card-header">
-                  <span className="knowledge-card-title">📝 {k.title}</span>
+                  <span className="knowledge-card-title">{k.title}</span>
                   <span className="knowledge-card-date">{formatDate(k.created_at)}</span>
-                  <button className="delete-btn" onClick={() => handleDeleteKnowledge(k.id)}>🗑️</button>
+                  <button className="delete-btn" onClick={() => handleDeleteKnowledge(k.id)} aria-label="Delete note" title="Delete"><Trash2 size={15} /></button>
                 </div>
                 <p className="knowledge-card-content">{k.content}</p>
               </div>
@@ -220,6 +293,10 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
         )}
 
       </div>
+
+      {viewingFile && (
+        <PdfViewer file={viewingFile} onClose={() => setViewingFile(null)} />
+      )}
     </div>
   );
 }
