@@ -138,7 +138,7 @@ def create_map(
     _validate(graph)
 
     now = datetime.utcnow()
-    m = MindMap(id=str(uuid4()), title=title, owner_id=current_user.id, created_at=now, updated_at=now)
+    m = MindMap(title=title, owner_id=current_user.id, created_at=now, updated_at=now)
     db.add(m)
     db.flush()
     _replace_graph(db, m, graph)
@@ -388,7 +388,7 @@ def duplicate_map(
     _validate(graph)
 
     now = datetime.utcnow()
-    copy = MindMap(id=str(uuid4()), title=f"{source.title} (copy)"[:255], owner_id=current_user.id, created_at=now, updated_at=now)
+    copy = MindMap(title=f"{source.title} (copy)"[:255], owner_id=current_user.id, created_at=now, updated_at=now)
     db.add(copy)
     db.flush()
     _replace_graph(db, copy, graph)
@@ -457,7 +457,7 @@ def add_collaborator(
     )
     if existing:
         raise HTTPException(status_code=409, detail="User is already a collaborator")
-    collab = MapCollaborator(id=str(uuid4()), map_id=map_id, user_id=user.id)
+    collab = MapCollaborator(map_id=map_id, user_id=user.id)
     db.add(collab)
     db.commit()
     return {"id": user.id, "name": user.name, "email": user.email, "role": collab.role}

@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import uuid4
 from sqlalchemy import Column, String, DateTime, Integer, ForeignKey
 from database import Base
 
@@ -6,7 +7,7 @@ from database import Base
 class UploadedFile(Base):
     __tablename__ = "uploaded_files"
 
-    id = Column(String(36), primary_key=True, index=True)
+    id = Column(String(36), primary_key=True, index=True, default=lambda: str(uuid4()))
     filename = Column(String(255), nullable=False)
     original_name = Column(String(255), nullable=False)
     file_size = Column(Integer, nullable=False)

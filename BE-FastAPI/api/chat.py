@@ -1,5 +1,4 @@
 import logging
-from uuid import uuid4
 from datetime import datetime
 
 from botocore.exceptions import ClientError, ConnectTimeoutError, EndpointConnectionError, NoCredentialsError, ReadTimeoutError
@@ -30,7 +29,6 @@ def chat(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     user_msg = Message(
-        id=str(uuid4()),
         conversation_id=payload.conversation_id,
         role="user",
         content=payload.message,
@@ -66,7 +64,6 @@ def chat(
         raise HTTPException(status_code=502, detail="Something went wrong while generating a reply. Please try again.")
 
     assistant_msg = Message(
-        id=str(uuid4()),
         conversation_id=payload.conversation_id,
         role="assistant",
         content=answer,

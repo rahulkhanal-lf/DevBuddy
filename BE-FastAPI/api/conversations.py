@@ -1,4 +1,3 @@
-from uuid import uuid4
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -19,7 +18,6 @@ def create_conversation(
     current_user: User = Depends(get_current_user),
 ):
     conv = Conversation(
-        id=str(uuid4()),
         title=payload.title or "New Chat",
         user_id=current_user.id,
         created_at=datetime.utcnow(),

@@ -1,4 +1,3 @@
-from uuid import uuid4
 from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -21,7 +20,6 @@ def create_knowledge(
     current_user: User = Depends(get_current_user),
 ):
     db_knowledge = KnowledgeText(
-        id=str(uuid4()),
         title=payload.title,
         content=payload.content,
         user_id=current_user.id,

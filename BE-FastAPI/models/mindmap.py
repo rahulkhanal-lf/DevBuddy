@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import uuid4
 from sqlalchemy import Column, String, DateTime, Text, Float, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
@@ -7,7 +8,7 @@ from database import Base
 class MindMap(Base):
     __tablename__ = "mind_maps"
 
-    id = Column(String(36), primary_key=True, index=True)
+    id = Column(String(36), primary_key=True, index=True, default=lambda: str(uuid4()))
     title = Column(String(255), nullable=False)
     owner_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

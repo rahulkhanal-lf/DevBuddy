@@ -1,4 +1,3 @@
-from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, Field
@@ -33,7 +32,6 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     user = User(
-        id=str(uuid4()),
         name=payload.name.strip(),
         email=payload.email.lower(),
         password_hash=hash_password(payload.password),
