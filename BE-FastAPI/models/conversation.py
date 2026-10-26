@@ -9,6 +9,7 @@ class Conversation(Base):
 
     id = Column(String(36), primary_key=True, index=True)
     title = Column(String(255), nullable=False, default="New Chat")
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     messages = relationship(

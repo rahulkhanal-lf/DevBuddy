@@ -1,9 +1,8 @@
 import { useRef, useState, useEffect } from "react";
 import { CircleAlert, Eye, FileText, NotebookPen, Trash2, Upload, X } from "lucide-react";
+import { authFetch } from "../lib/authFetch";
 import type { UploadedFile, KnowledgeText } from "../types";
 import "./FilesPage.css";
-
-const API = "http://localhost:8000";
 
 interface Props {
   files: UploadedFile[];
@@ -93,7 +92,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
 
   async function fetchKnowledge() {
     try {
-      const res = await fetch(`${API}/api/knowledge`);
+      const res = await authFetch("/api/knowledge");
       if (res.ok) setKnowledgeList(await res.json());
     } catch (e) {
       console.error("Failed to fetch knowledge:", e);
@@ -104,7 +103,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
     if (!title.trim() || !content.trim()) return;
     setIsSaving(true);
     try {
-      const res = await fetch(`${API}/api/knowledge`, {
+      const res = await authFetch("/api/knowledge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: title.trim(), content: content.trim() }),
@@ -124,7 +123,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
 
   async function handleDeleteKnowledge(id: string) {
     try {
-      const res = await fetch(`${API}/api/knowledge/${id}`, { method: "DELETE" });
+      const res = await authFetch(`/api/knowledge/${id}`, { method: "DELETE" });
       if (res.ok) setKnowledgeList((prev) => prev.filter((k) => k.id !== id));
     } catch (e) {
       console.error("Failed to delete knowledge:", e);
@@ -138,7 +137,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
       for (const file of filesToUpload) {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await fetch(`${API}/api/files/upload`, {
+        const res = await authFetch("/api/files/upload", {
           method: "POST",
           body: formData,
         });
@@ -158,7 +157,7 @@ export default function FilesPage({ files, onFilesUpload, onRemoveFile }: Props)
 
   async function handleRemoveFile(fileId: string) {
     try {
-      const res = await fetch(`${API}/api/files/${fileId}`, { method: "DELETE" });
+      const res = await authFetch(`/api/files/${fileId}`, { method: "DELETE" });
       if (res.ok) onRemoveFile(fileId);
     } catch (e) {
       console.error("Delete failed:", e);

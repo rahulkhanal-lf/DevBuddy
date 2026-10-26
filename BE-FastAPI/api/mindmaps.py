@@ -5,8 +5,11 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import MindMap, MindNode, MindEdge
+from models.user import User
+from models.map_collaborator import MapCollaborator
 from schemas.mindmap import EdgeIn, GraphIn, MapCreate, MapDetail, MapRename, MapSummary, NodeIn
 from pydantic import BaseModel as PydanticBase, Field
+from services.auth_service import get_current_user
 from services.mindmap_ai import (
     MindMapAIError,
     MindMapGenerateRequest,
@@ -23,12 +26,14 @@ from services.mindmap_rules import GraphValidationError, validate_graph
 router = APIRouter(prefix="/api/maps", tags=["maps"])
 
 
-def _summary(m: MindMap) -> MapSummary:
+def _summary(m: MindMap, owner: User | None = None) -> MapSummary:
     return MapSummary(
         id=m.id,
         title=m.title,
         created_at=m.created_at.isoformat(),
         updated_at=m.updated_at.isoformat(),
+        owner_id=m.owner_id,
+        owner_name=owner.name if owner else None,
     )
 
 
@@ -45,6 +50,20 @@ def _get_map(db: Session, map_id: str) -> MindMap:
     if not m:
         raise HTTPException(status_code=404, detail="Map not found")
     return m
+
+
+def _check_access(db: Session, m: MindMap, user: User, require_editor: bool = False) -> None:
+    """Raise 403 if user has no access (or insufficient role) to this map."""
+    if m.owner_id == user.id:
+        return
+    collab = db.query(MapCollaborator).filter(
+        MapCollaborator.map_id == m.id,
+        MapCollaborator.user_id == user.id,
+    ).first()
+    if not collab:
+        raise HTTPException(status_code=403, detail="You don't have access to this map")
+    if require_editor and collab.role != "editor":
+        raise HTTPException(status_code=403, detail="You need editor access to modify this map")
 
 
 def _validate(graph: GraphIn) -> None:
@@ -87,19 +106,39 @@ def _replace_graph(db: Session, m: MindMap, graph: GraphIn) -> None:
 
 
 @router.get("", response_model=list[MapSummary])
-def list_maps(db: Session = Depends(get_db)):
-    maps = db.query(MindMap).order_by(MindMap.updated_at.desc()).all()
-    return [_summary(m) for m in maps]
+def list_maps(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    collab_map_ids = (
+        db.query(MapCollaborator.map_id)
+        .filter(MapCollaborator.user_id == current_user.id)
+        .subquery()
+    )
+    rows = (
+        db.query(MindMap, User)
+        .outerjoin(User, MindMap.owner_id == User.id)
+        .filter(
+            (MindMap.owner_id == current_user.id) | (MindMap.id.in_(collab_map_ids))
+        )
+        .order_by(MindMap.updated_at.desc())
+        .all()
+    )
+    return [_summary(m, owner) for m, owner in rows]
 
 
 @router.post("", response_model=MapDetail, status_code=201)
-def create_map(payload: MapCreate, db: Session = Depends(get_db)):
+def create_map(
+    payload: MapCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     title = payload.title.strip() or "Untitled map"
     graph = payload.graph or GraphIn(nodes=[NodeIn(id=str(uuid4()), label=title)])
     _validate(graph)
 
     now = datetime.utcnow()
-    m = MindMap(id=str(uuid4()), title=title, created_at=now, updated_at=now)
+    m = MindMap(id=str(uuid4()), title=title, owner_id=current_user.id, created_at=now, updated_at=now)
     db.add(m)
     db.flush()
     _replace_graph(db, m, graph)
@@ -114,14 +153,30 @@ class MapChatRequest(PydanticBase):
 
 
 @router.post("/chat")
-def chat_about_maps(payload: MapChatRequest, db: Session = Depends(get_db)):
+def chat_about_maps(
+    payload: MapChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Answer a question about the user's mind maps using their node data as context."""
     if payload.map_id:
-        maps = db.query(MindMap).filter(MindMap.id == payload.map_id).all()
-        if not maps:
-            raise HTTPException(status_code=404, detail="Map not found")
+        m = _get_map(db, payload.map_id)
+        _check_access(db, m, current_user)
+        maps = [m]
     else:
-        maps = db.query(MindMap).order_by(MindMap.updated_at.desc()).all()
+        collab_map_ids = (
+            db.query(MapCollaborator.map_id)
+            .filter(MapCollaborator.user_id == current_user.id)
+            .subquery()
+        )
+        maps = (
+            db.query(MindMap)
+            .filter(
+                (MindMap.owner_id == current_user.id) | (MindMap.id.in_(collab_map_ids))
+            )
+            .order_by(MindMap.updated_at.desc())
+            .all()
+        )
     context = format_maps_as_context(maps)
     try:
         answer = ask_about_maps(context, payload.question)
@@ -131,7 +186,7 @@ def chat_about_maps(payload: MapChatRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/generate")
-def generate_map(payload: MindMapGenerateRequest):
+def generate_map(payload: MindMapGenerateRequest, _: User = Depends(get_current_user)):
     """Generate an unsaved draft. Nothing is persisted until the client saves it."""
     try:
         title, graph = generate_mindmap(payload)
@@ -145,7 +200,7 @@ class GenerateFromTextRequest(PydanticBase):
 
 
 @router.post("/generate-from-text")
-def generate_map_from_text(payload: GenerateFromTextRequest):
+def generate_map_from_text(payload: GenerateFromTextRequest, _: User = Depends(get_current_user)):
     """Generate an unsaved mind map draft from a free-form text block (e.g. a chat response)."""
     try:
         title, graph = generate_from_text(payload.text)
@@ -177,9 +232,15 @@ class ImportNotesRequest(PydanticBase):
 
 
 @router.post("/{map_id}/import-notes")
-def import_map_notes(map_id: str, payload: ImportNotesRequest, db: Session = Depends(get_db)):
+def import_map_notes(
+    map_id: str,
+    payload: ImportNotesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Convert rough notes into structured child nodes and attach under a chosen parent."""
     m = _get_map(db, map_id)
+    _check_access(db, m, current_user, require_editor=True)
     context = _build_tree_text(m.nodes)
     if payload.parent_node_id:
         parent = next((n for n in m.nodes if n.id == payload.parent_node_id), None)
@@ -202,9 +263,15 @@ def import_map_notes(map_id: str, payload: ImportNotesRequest, db: Session = Dep
 
 
 @router.post("/{map_id}/expand")
-def expand_map_node(map_id: str, payload: ExpandRequest, db: Session = Depends(get_db)):
+def expand_map_node(
+    map_id: str,
+    payload: ExpandRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """AI-suggest new child nodes for a specific node, using the map as context."""
     m = _get_map(db, map_id)
+    _check_access(db, m, current_user)
     # Build context from this map's node tree
     context = _build_tree_text(m.nodes)
     # Find the target node
@@ -245,13 +312,25 @@ def _build_tree_text(nodes) -> str:
 
 
 @router.get("/{map_id}", response_model=MapDetail)
-def get_map(map_id: str, db: Session = Depends(get_db)):
-    return _detail(_get_map(db, map_id))
+def get_map(
+    map_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    m = _get_map(db, map_id)
+    _check_access(db, m, current_user)
+    return _detail(m)
 
 
 @router.patch("/{map_id}", response_model=MapSummary)
-def rename_map(map_id: str, payload: MapRename, db: Session = Depends(get_db)):
+def rename_map(
+    map_id: str,
+    payload: MapRename,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     m = _get_map(db, map_id)
+    _check_access(db, m, current_user, require_editor=True)
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=422, detail="Title cannot be empty")
@@ -263,8 +342,14 @@ def rename_map(map_id: str, payload: MapRename, db: Session = Depends(get_db)):
 
 
 @router.put("/{map_id}/graph", response_model=MapDetail)
-def save_graph(map_id: str, payload: GraphIn, db: Session = Depends(get_db)):
+def save_graph(
+    map_id: str,
+    payload: GraphIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     m = _get_map(db, map_id)
+    _check_access(db, m, current_user, require_editor=True)
     _validate(payload)
     _replace_graph(db, m, payload)
     db.commit()
@@ -273,8 +358,13 @@ def save_graph(map_id: str, payload: GraphIn, db: Session = Depends(get_db)):
 
 
 @router.post("/{map_id}/duplicate", response_model=MapDetail, status_code=201)
-def duplicate_map(map_id: str, db: Session = Depends(get_db)):
+def duplicate_map(
+    map_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     source = _get_map(db, map_id)
+    _check_access(db, source, current_user)
     # Fresh ids keep the copy independent; relationships are remapped through id_map
     id_map = {n.id: str(uuid4()) for n in source.nodes}
     graph = GraphIn(
@@ -298,7 +388,7 @@ def duplicate_map(map_id: str, db: Session = Depends(get_db)):
     _validate(graph)
 
     now = datetime.utcnow()
-    copy = MindMap(id=str(uuid4()), title=f"{source.title} (copy)"[:255], created_at=now, updated_at=now)
+    copy = MindMap(id=str(uuid4()), title=f"{source.title} (copy)"[:255], owner_id=current_user.id, created_at=now, updated_at=now)
     db.add(copy)
     db.flush()
     _replace_graph(db, copy, graph)
@@ -308,8 +398,88 @@ def duplicate_map(map_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/{map_id}")
-def delete_map(map_id: str, db: Session = Depends(get_db)):
+def delete_map(
+    map_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     m = _get_map(db, map_id)
+    if m.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can delete this map")
     db.delete(m)
     db.commit()
     return {"message": "Map deleted"}
+
+
+# ── Collaborator endpoints ──────────────────────────────────────────────────
+
+class AddCollaboratorRequest(PydanticBase):
+    email: str
+
+
+@router.get("/{map_id}/collaborators")
+def list_collaborators(
+    map_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    m = _get_map(db, map_id)
+    _check_access(db, m, current_user)
+    rows = (
+        db.query(MapCollaborator, User)
+        .join(User, MapCollaborator.user_id == User.id)
+        .filter(MapCollaborator.map_id == map_id)
+        .all()
+    )
+    return [
+        {"id": u.id, "name": u.name, "email": u.email, "role": c.role}
+        for c, u in rows
+    ]
+
+
+@router.post("/{map_id}/collaborators", status_code=201)
+def add_collaborator(
+    map_id: str,
+    payload: AddCollaboratorRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    m = _get_map(db, map_id)
+    if m.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can add collaborators")
+    user = db.query(User).filter(User.email == payload.email.lower()).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="No user found with that email")
+    existing = (
+        db.query(MapCollaborator)
+        .filter(MapCollaborator.map_id == map_id, MapCollaborator.user_id == user.id)
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="User is already a collaborator")
+    collab = MapCollaborator(id=str(uuid4()), map_id=map_id, user_id=user.id)
+    db.add(collab)
+    db.commit()
+    return {"id": user.id, "name": user.name, "email": user.email, "role": collab.role}
+
+
+@router.delete("/{map_id}/collaborators/{user_id}")
+def remove_collaborator(
+    map_id: str,
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    m = _get_map(db, map_id)
+    if m.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can remove collaborators")
+    collab = (
+        db.query(MapCollaborator)
+        .filter(MapCollaborator.map_id == map_id, MapCollaborator.user_id == user_id)
+        .first()
+    )
+    if not collab:
+        raise HTTPException(status_code=404, detail="Collaborator not found")
+    db.delete(collab)
+    db.commit()
+    return {"message": "Collaborator removed"}

@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Conversation, Message
+from models.user import User
 from schemas import ChatRequest, ChatResponse
 from services import rag_chat
+from services.auth_service import get_current_user
 from services.bedrock import BedrockNotConfigured
 
 logger = logging.getLogger(__name__)
@@ -18,7 +20,11 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
 @router.post("", response_model=ChatResponse)
-def chat(payload: ChatRequest, db: Session = Depends(get_db)):
+def chat(
+    payload: ChatRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     conv = db.query(Conversation).filter(Conversation.id == payload.conversation_id).first()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")

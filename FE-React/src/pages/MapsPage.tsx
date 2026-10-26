@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { MessageSquare, Network, Sparkles, Bot, X } from "lucide-react";
+import { MessageSquare, Network, Sparkles, Bot, X, Users } from "lucide-react";
 import { createMap, deleteMap, duplicateMap, errorMessage, listMaps, renameMap } from "../mindmap/api";
+import { useAuth } from "../auth/AuthContext";
 import GenerateDialog from "../mindmap/GenerateDialog";
 import MapsChatPanel from "../mindmap/MapsChatPanel";
 import type { MapSummary } from "../mindmap/types";
@@ -15,6 +16,7 @@ function formatDate(iso: string) {
 
 export default function MapsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [maps, setMaps] = useState<MapSummary[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState("");
@@ -158,7 +160,14 @@ export default function MapsPage() {
                     </div>
                     <button className="mm-card-open" onClick={() => navigate(`/maps/${m.id}`)}>
                       <span className="mm-card-title">{m.title}</span>
-                      <span className="mm-card-date">Updated {formatDate(m.updated_at)}</span>
+                      <span className="mm-card-meta">
+                        {m.owner_id && m.owner_id !== user?.id ? (
+                          <span className="mm-badge shared"><Users size={11} /> Shared by {m.owner_name ?? "someone"}</span>
+                        ) : (
+                          <span className="mm-badge mine">Mine</span>
+                        )}
+                        <span className="mm-card-date">Updated {formatDate(m.updated_at)}</span>
+                      </span>
                     </button>
                     <div className="mm-card-actions">
                       <button

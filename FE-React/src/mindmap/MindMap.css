@@ -187,7 +187,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.mm-card-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mm-card-date { font-size: 12px; color: var(--text-3); }
+.mm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  line-height: 1.5;
+}
+.mm-badge.mine { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.mm-badge.shared { background: color-mix(in srgb, #a855f7 15%, transparent); color: #a855f7; }
 .mm-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 .mm-empty h2 { margin: 0; font-size: 18px; color: var(--text); }
@@ -295,6 +308,17 @@
   word-break: break-word;
 }
 .mcp-msg.user .mcp-text { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+.mcp-markdown { white-space: normal; }
+.mcp-markdown p { margin: 0 0 6px; }
+.mcp-markdown p:last-child { margin: 0; }
+.mcp-markdown ul, .mcp-markdown ol { margin: 4px 0 6px 16px; padding: 0; }
+.mcp-markdown li { margin: 2px 0; }
+.mcp-markdown strong { font-weight: 600; }
+.mcp-markdown code { font-family: monospace; font-size: 12px; background: rgba(0,0,0,.12); border-radius: 3px; padding: 1px 4px; }
+.mcp-markdown pre { background: rgba(0,0,0,.15); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; }
+.mcp-markdown pre code { background: none; padding: 0; }
+.mcp-markdown h1, .mcp-markdown h2, .mcp-markdown h3 { font-size: 13px; font-weight: 700; margin: 6px 0 3px; }
 
 .mcp-typing {
   display: flex;
@@ -806,3 +830,183 @@
   .mm-toolbar-group { border-left: none; padding-left: 0; }
   .mm-field-row { flex-direction: column; }
 }
+
+/* ── Collaboration: avatars ─────────────────────────────────────────────── */
+.collab-avatars {
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+}
+
+.collab-overflow {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  color: var(--fg);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: -8px;
+}
+
+/* ── Share map dialog ────────────────────────────────────────────────────── */
+.share-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.share-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 420px;
+  max-width: 95vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.share-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.share-close {
+  background: none;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+}
+.share-close:hover { opacity: 1; }
+
+.share-add-form {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.share-email-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--fg);
+  font-size: 0.85rem;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+}
+.share-email-input:focus { border-color: var(--accent); }
+
+.share-add-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: 7px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.5rem 0.85rem;
+  white-space: nowrap;
+}
+.share-add-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.share-error {
+  color: #e05252;
+  font-size: 0.8rem;
+  padding: 0 16px;
+  margin: -4px 0 4px;
+}
+
+.share-collab-list {
+  padding: 8px 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.share-hint {
+  font-size: 0.82rem;
+  color: var(--fg);
+  opacity: 0.5;
+  padding: 8px 16px;
+  margin: 0;
+}
+
+.share-collab-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+}
+.share-collab-row:hover { background: var(--bg); }
+
+.share-collab-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.share-collab-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-collab-email {
+  font-size: 0.75rem;
+  color: var(--fg);
+  opacity: 0.55;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-collab-role {
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.share-remove-btn {
+  background: none;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  opacity: 0.4;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+}
+.share-remove-btn:hover { opacity: 1; color: #e05252; }

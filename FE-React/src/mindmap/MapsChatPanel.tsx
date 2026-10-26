@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, MessageSquare, Send, User, X } from "lucide-react";
-
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { authFetch } from "../lib/authFetch";
 import type { MapSummary } from "./types";
-
-const API = "http://localhost:8000";
 
 interface ChatMsg {
   role: "user" | "assistant";
@@ -46,7 +46,7 @@ export default function MapsChatPanel({ onClose, map }: Props) {
     setMessages((prev) => [...prev, { role: "user", text: q }]);
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/maps/chat`, {
+      const res = await authFetch("/api/maps/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: q, map_id: map?.id ?? null }),
@@ -111,7 +111,9 @@ export default function MapsChatPanel({ onClose, map }: Props) {
             <span className="mcp-avatar">
               {m.role === "assistant" ? <Bot size={14} /> : <User size={14} />}
             </span>
-            <p className="mcp-text">{m.text}</p>
+            <div className="mcp-text mcp-markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+            </div>
           </div>
         ))}
 

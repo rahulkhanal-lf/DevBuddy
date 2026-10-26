@@ -47,6 +47,8 @@ class MapSummary(BaseModel):
     title: str
     created_at: str
     updated_at: str
+    owner_id: Optional[str] = None
+    owner_name: Optional[str] = None
 
 
 class MapDetail(MapSummary):

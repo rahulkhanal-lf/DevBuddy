@@ -1,7 +1,10 @@
 import { useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { Bot, BrainCircuit, FileText, House, MessageSquare, Moon, Network, Paperclip, Plus, Sun, X, type LucideIcon } from "lucide-react";
+import { Bot, BrainCircuit, FileText, House, LogOut, MessageSquare, Moon, Network, Paperclip, Plus, Sun, X, type LucideIcon } from "lucide-react";
 import { useTheme } from "../theme";
+import { useAuth } from "../auth/AuthContext";
+import { authFetch } from "../lib/authFetch";
+import UserAvatar from "./UserAvatar";
 import type { Conversation, UploadedFile } from "../types";
 import "./Sidebar.css";
 
@@ -44,6 +47,7 @@ export default function Sidebar({
   const onChatPage = useLocation().pathname.startsWith("/chat");
   const navClass = ({ isActive }: { isActive: boolean }) => `nav-link${isActive ? " active" : ""}`;
   const { theme, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -64,7 +68,7 @@ export default function Sidebar({
         const formData = new FormData();
         formData.append("file", file);
 
-        const response = await fetch("http://localhost:8000/api/files/upload", {
+        const response = await authFetch("/api/files/upload", {
           method: "POST",
           body: formData,
         });
@@ -83,7 +87,7 @@ export default function Sidebar({
 
   async function handleRemoveFile(fileId: string) {
     try {
-      const response = await fetch(`http://localhost:8000/api/files/${fileId}`, {
+      const response = await authFetch(`/api/files/${fileId}`, {
         method: "DELETE",
       });
       if (response.ok) {
@@ -199,6 +203,20 @@ export default function Sidebar({
       )}
 
       <div className="sidebar-footer">
+        {user && (
+          <div className="sidebar-user">
+            <UserAvatar name={user.name} size={28} />
+            <span className="sidebar-user-name">{user.name}</span>
+            <button className="sidebar-logout" onClick={logout} title="Sign out">
+              <LogOut size={15} />
+            </button>
+          </div>
+        )}
+        {!user && (
+          <Link to="/login" className="nav-link">
+            Sign in
+          </Link>
+        )}
         <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
           {theme === "dark" ? <Sun className="nav-icon" size={18} /> : <Moon className="nav-icon" size={18} />}
           {theme === "dark" ? "Light theme" : "Dark theme"}

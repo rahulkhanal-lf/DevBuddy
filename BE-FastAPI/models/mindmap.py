@@ -9,6 +9,7 @@ class MindMap(Base):
 
     id = Column(String(36), primary_key=True, index=True)
     title = Column(String(255), nullable=False)
+    owner_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

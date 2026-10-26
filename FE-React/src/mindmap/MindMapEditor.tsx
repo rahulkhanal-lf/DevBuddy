@@ -11,11 +11,15 @@ import {
   type FinalConnectionState,
   type NodeChange,
 } from "@xyflow/react";
-import { GitBranch, Minus, Plus } from "lucide-react";
+import { GitBranch, Minus, Plus, Users } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 import { useBlocker } from "react-router-dom";
 import { ArrowLeft, FileText, Maximize2, Network, Redo2, Save, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useTheme } from "../theme";
+import { useAuth } from "../auth/AuthContext";
+import { useCollaboration } from "./useCollaboration";
+import CollaboratorAvatars from "./CollaboratorAvatars";
+import ShareMapDialog from "./ShareMapDialog";
 
 import { createMap, errorMessage, expandNode, getMap, importNotes, renameMap, saveGraph, type ExpansionNode } from "./api";
 import ImportNotesPanel from "./ImportNotesPanel";
@@ -85,6 +89,20 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
 
   // Import notes panel
   const [importOpen, setImportOpen] = useState(false);
+
+  // Collaboration
+  const { token } = useAuth();
+  const { peers, sendUpdate, onMessage } = useCollaboration(mapId, token);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  // Apply live graph patches sent by other collaborators
+  onMessage((msg: object) => {
+    const m = msg as { type: string; graph?: MindGraph };
+    if (m.type === "patch" && m.graph) {
+      setHist((h) => replace(h, m.graph!));
+      setSaved(m.graph!);
+    }
+  });
 
   // AI expand state
   const [expandOpen, setExpandOpen] = useState(false);
@@ -346,6 +364,7 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
       }
       setSaved(snapshot);
       setNotice({ kind: "info", text: isDraft ? "Saved as a new map" : "Saved" });
+      sendUpdate({ type: "patch", graph: snapshot });
     } catch (err) {
       setNotice({ kind: "error", text: `Couldn't save: ${errorMessage(err)} Your changes are still here.` });
     } finally {
@@ -599,6 +618,18 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
             <FileText size={14} /> Import Notes
           </button>
         )}
+        {mapId && token && (
+          <>
+            <CollaboratorAvatars peers={peers} />
+            <button
+              className={`mm-btn${shareOpen ? " primary" : ""}`}
+              onClick={() => setShareOpen((v) => !v)}
+              title="Share this map"
+            >
+              <Users size={14} /> Share
+            </button>
+          </>
+        )}
         <span className={`mm-status${dirty ? " dirty" : ""}`}>{status}</span>
         <button className="mm-btn primary" onClick={save} disabled={saving || (!dirty && !isDraft)} title="Save (Ctrl+S)">
           <Save size={14} /> {isDraft ? "Accept & save" : "Save"}
@@ -621,6 +652,10 @@ function EditorInner({ mapId: initialMapId, draft, onClose, onCreated }: Props) 
             <X size={16} />
           </button>
         </div>
+      )}
+
+      {shareOpen && mapId && (
+        <ShareMapDialog mapId={mapId} onClose={() => setShareOpen(false)} />
       )}
 
       <div className="mm-body">

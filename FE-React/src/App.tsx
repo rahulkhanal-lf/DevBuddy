@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Outlet, useMatch, useNavigate } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import { ThemeContext, useThemeState } from "./theme";
+import { authFetch } from "./lib/authFetch";
 import type { AppOutletContext, Conversation, Message, UploadedFile } from "./types";
 import "./App.css";
 
@@ -35,7 +36,7 @@ export default function App() {
 
   async function fetchConversations() {
     try {
-      const res = await fetch(`${API}/api/conversations`);
+      const res = await authFetch("/api/conversations");
       if (res.ok) setConversations(await res.json());
     } catch {
       console.error("Failed to fetch conversations");
@@ -46,7 +47,7 @@ export default function App() {
 
   async function fetchFileHistory() {
     try {
-      const res = await fetch(`${API}/api/files`);
+      const res = await authFetch("/api/files");
       if (res.ok) setUploadedFiles(await res.json());
     } catch {
       console.error("Failed to fetch files");
@@ -55,7 +56,7 @@ export default function App() {
 
   async function loadMessages(id: string) {
     try {
-      const res = await fetch(`${API}/api/conversations/${id}`);
+      const res = await authFetch(`/api/conversations/${id}`);
       if (res.ok) {
         const full: Conversation = await res.json();
         setConversations((prev) => prev.map((c) => (c.id === id ? full : c)));
@@ -75,7 +76,7 @@ export default function App() {
 
   async function handleDeleteConversation(id: string) {
     try {
-      await fetch(`${API}/api/conversations/${id}`, { method: "DELETE" });
+      await authFetch(`/api/conversations/${id}`, { method: "DELETE" });
     } catch {
       console.error("Failed to delete conversation");
     }
@@ -118,7 +119,7 @@ export default function App() {
     if (!convId) {
       // Create a new conversation on the server
       try {
-        const res = await fetch(`${API}/api/conversations`, {
+        const res = await authFetch("/api/conversations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: content.slice(0, 60) }),
@@ -145,7 +146,7 @@ export default function App() {
     setIsTyping(true);
 
     try {
-      const res = await fetch(`${API}/api/chat`, {
+      const res = await authFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversation_id: convId, message: content }),

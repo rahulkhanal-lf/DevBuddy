@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { BrainCircuit, MessageSquare, Network } from "lucide-react";
 import { listMaps } from "../mindmap/api";
+import { useAuth } from "../auth/AuthContext";
 import type { MapSummary } from "../mindmap/types";
 import type { AppOutletContext } from "../types";
 import "./HomePage.css";
@@ -35,10 +36,12 @@ function todayLabel() {
 
 export default function HomePage() {
   const { conversations, conversationsLoaded } = useOutletContext<AppOutletContext>();
+  const { user } = useAuth();
   const [maps, setMaps] = useState<MapSummary[] | null>(null);
   const [mapsError, setMapsError] = useState(false);
 
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     listMaps()
       .then((result) => !cancelled && setMaps(result))
@@ -46,7 +49,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   return (
     <div className="main home">

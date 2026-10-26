@@ -2,6 +2,10 @@ import type { GenerateRequest, GeneratedDraft, MapDetail, MapSummary, MindGraph 
 
 const API = "http://localhost:8000";
 
+function getToken(): string | null {
+  try { return localStorage.getItem("mindflow_token"); } catch { return null; }
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -33,15 +37,23 @@ function formatDetail(detail: unknown): string | null {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = getToken();
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   let res: Response;
   try {
     res = await fetch(`${API}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...init.headers },
+      headers: { "Content-Type": "application/json", ...authHeader, ...init.headers },
     });
   } catch (err) {
     if (isAbortError(err)) throw err;
     throw new ApiError(0, "Can't reach the server. Check that the backend is running.");
+  }
+  if (res.status === 401) {
+    // Token expired or invalid — clear local auth and reload to login
+    try { localStorage.removeItem("mindflow_token"); localStorage.removeItem("mindflow_user"); } catch { /* ignore */ }
+    window.location.href = "/login";
+    throw new ApiError(401, "Session expired. Please sign in again.");
   }
   if (!res.ok) {
     let message = `Request failed (${res.status}).`;

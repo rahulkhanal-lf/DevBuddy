@@ -7,8 +7,10 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import UploadedFile
+from models.user import User
 from schemas import FileResponse
 from services import ingest_pdf
+from services.auth_service import get_current_user
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -24,6 +26,7 @@ async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     file_ext = os.path.splitext(file.filename)[1].lower()
     if file_ext not in ALLOWED_EXTENSIONS or file.content_type not in ALLOWED_TYPES:
@@ -47,6 +50,7 @@ async def upload_file(
         original_name=file.filename,
         file_size=len(content),
         file_type=file.content_type or "application/octet-stream",
+        user_id=current_user.id,
         uploaded_at=datetime.utcnow(),
     )
     db.add(db_file)
@@ -60,23 +64,36 @@ async def upload_file(
 
 
 @router.get("", response_model=list[FileResponse])
-def get_files(db: Session = Depends(get_db)):
-    files = db.query(UploadedFile).order_by(UploadedFile.uploaded_at.desc()).all()
+def get_files(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    files = (
+        db.query(UploadedFile)
+        .filter(UploadedFile.user_id == current_user.id)
+        .order_by(UploadedFile.uploaded_at.desc())
+        .all()
+    )
     return files
 
 
 @router.get("/{file_id}", response_model=FileResponse)
-def get_file(file_id: str, db: Session = Depends(get_db)):
-    db_file = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
+def get_file(file_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    db_file = (
+        db.query(UploadedFile)
+        .filter(UploadedFile.id == file_id, UploadedFile.user_id == current_user.id)
+        .first()
+    )
     if not db_file:
         raise HTTPException(status_code=404, detail="File not found")
     return db_file
 
 
 @router.get("/{file_id}/content")
-def view_file(file_id: str, db: Session = Depends(get_db)):
+def view_file(file_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Stream the raw PDF so the frontend can display it in an iframe."""
-    db_file = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
+    db_file = (
+        db.query(UploadedFile)
+        .filter(UploadedFile.id == file_id, UploadedFile.user_id == current_user.id)
+        .first()
+    )
     if not db_file:
         raise HTTPException(status_code=404, detail="File not found")
     file_path = os.path.join(UPLOAD_DIR, db_file.filename)
@@ -90,8 +107,12 @@ def view_file(file_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/{file_id}")
-def delete_file(file_id: str, db: Session = Depends(get_db)):
-    db_file = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
+def delete_file(file_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    db_file = (
+        db.query(UploadedFile)
+        .filter(UploadedFile.id == file_id, UploadedFile.user_id == current_user.id)
+        .first()
+    )
     if not db_file:
         raise HTTPException(status_code=404, detail="File not found")
 
