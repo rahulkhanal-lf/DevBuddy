@@ -28,6 +28,7 @@ async def upload_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    
     file_ext = os.path.splitext(file.filename)[1].lower()
     if file_ext not in ALLOWED_EXTENSIONS or file.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")

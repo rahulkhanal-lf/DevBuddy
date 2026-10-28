@@ -86,18 +86,6 @@ export default function ChatArea({ messages, isTyping }: Props) {
         <p className="chat-empty-sub">
           Ask about your knowledge base, a piece of code, or anything you're working on.
         </p>
-        <div className="chat-suggestions">
-          {[
-            "Summarize my knowledge base",
-            "Explain this code snippet",
-            "Help me debug an issue",
-            "Write unit tests for this function",
-          ].map((s) => (
-            <button key={s} className="suggestion-chip">
-              {s}
-            </button>
-          ))}
-        </div>
       </div>
     );
   }
